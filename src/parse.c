@@ -21,7 +21,6 @@
  */
 selem_t ignored;
 static int init = 0;
-static char *lp_nm_meta = "libpazu_meta_repeater";
 
 
 /*
@@ -165,9 +164,10 @@ has_one_plus(tok_seg_t *s, char *in, size_t bit_off)
 	size_t off = bit_off;
 	int c = 0;
 	int consumed = 0;
+	size_t bytes = (w / 8) + (w % 8);
 	do {
 		get_bits(in, buf, off, off + w);
-		c = bcmp(buf, s->ts_data, w);
+		c = bcmp(buf, s->ts_data, bytes);
 		off += w;
 		consumed++;
 	} while (c == 0);
@@ -179,10 +179,11 @@ int
 has_one(tok_seg_t *s, char *in, size_t bit_off)
 {
 	size_t w = s->ts_width;
+	size_t bytes = (w / 8) + (w % 8);
 	char buf[32];
 	bzero(buf, 32);
 	get_bits(in, buf, bit_off, bit_off + w);
-	int c = bcmp(buf, s->ts_data, w);
+	int c = bcmp(buf, s->ts_data, bytes);
 	if (c != 0) {
 		return (0);
 	}
@@ -248,7 +249,7 @@ has_anyof_one_plus(tok_seg_t *s, char *in, size_t bit_off)
 	return (bits);
 }
 
-lp_grmr_node_t *find_grmr_node(lp_grmr_t *g, char *name);
+//lp_grmr_node_t *find_grmr_node(lp_grmr_t *g, char *name);
 
 /*
  * Returns how many bits we consumed (not how many bytes).
@@ -672,26 +673,6 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 }
 
 /*
- * This function defines a grouping. A grouping is a logical group of
- * ast_nodes. For example by defining a grouping as "(" and ")", every ast-node
- * that's between those two tokens has their parent node replaced by a new
- * parent node that represents the group. The `scope` argument indicates what
- * the parent of the grouper _must_ be. This makes it impossible to create a
- * nonsensical groups -- like an if-statement that encloses an entire C code
- * file (only function definitions are allowed at the root of the file).
- *
- * This allows us to break expressions down into parenthesized subexpressions,
- * for example. This also allows us to implemented nesting such as in the case
- * of nested loops. It allows to structure the AST in a way that makes sense,
- * without recursively defining the grammar graph.
- */
-int
-lp_add_grouping(lp_grmr_t *g, char *start, char *end, char *scope)
-{
-	
-}
-
-/*
  * Scrubs a grammar and reports any error...
  */
 int
@@ -802,6 +783,13 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 	}
 	return (z);
 }
+/*
+ * Forward declaration of the ast-stack functions and graph functions.
+ */
+void ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an);
+void ast_pop_astn(lp_ast_t *ast);
+void lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c);
+void lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c);
 
 void
 try_parse(lp_grmr_node_t *gn, lp_ast_t *ast)
@@ -843,21 +831,12 @@ lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 			p->an_last_child->an_right = NULL;
 		}
 	} else {
-		c->an_right->an_left = c->an_left;
+		if (c->an_right != NULL) {
+			c->an_right->an_left = c->an_left;
+		}
 		if (c->an_left != NULL) {
 			c->an_left->an_right = c->an_right;
 		}
-	}
-	/*
-	 * We unlink the child from the meta_repeater.
-	 */
-	if (p->an_type == REPEATER) {
-		gelem_t meta_weight;
-		gelem_t meta;
-		meta.ge_p = p->an_meta;
-		meta_weight.ge_u = weight.ge_u;
-		lg_wdisconnect(ast_graph, meta, gc, meta_weight);
-		PARSE_AST_REM_CHILD(grmr, p->an_meta, c);
 	}
 	p->an_kids--;
 	PARSE_AST_REM_CHILD(grmr, p, c);
@@ -866,161 +845,6 @@ lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	}
 }
 
-int
-meta_rem_sub(gelem_t whatever, gelem_t ast_node, gelem_t *ignored)
-{
-	(void)whatever;
-	(void)ignored;
-	lp_ast_node_t *n = ast_node.ge_p;
-	lp_ast_t *a = n->an_ast;
-	lp_ast_node_t *p = n->an_parent;
-	if (p != NULL) {
-		gelem_t gpm;
-		gelem_t gp;
-		gelem_t gn;
-
-		gp.ge_p = p;
-		gpm.ge_p = p->an_meta;
-		gn.ge_p = n;
-
-		/*
-		 * If this an edge with a meta_repeater source, we want to
-		 * queue it for removal.
-		 */
-		if (gpm.ge_p != NULL) {
-			qed_edge_t *qe = lp_mk_qed_edge();
-			qe->qed_from = gpm;
-			qe->qed_to = gn;
-			qe->qed_weight.ge_u = n->an_index;
-
-			selem_t sqe;
-			sqe.sle_p = qe;
-			slablist_add(a->ast_rem_q, sqe, 0);
-		}
-		/*
-		 * And now we remove the edge between parent and child.
-		 */
-		qed_edge_t *qe2 = lp_mk_qed_edge();
-		qe2->qed_from = gp;
-		qe2->qed_to = gn;
-		qe2->qed_weight.ge_u = n->an_index;
-
-		selem_t sqe2;
-		sqe2.sle_p = qe2;
-		slablist_add(a->ast_rem_q, sqe2, 0);
-
-	}
-	if (PARSE_TRACE_AST_ENABLED()) {
-		lg_edges(a->ast_graph, trace_ast);
-	}
-	return (0);
-}
-
-void
-meta_rem_con(gelem_t from, gelem_t to, gelem_t weight)
-{
-	/*
-	 * We want to queue up all of the edges that have the meta_repeater as
-	 * the source, for removal.
-	 */
-	lp_ast_node_t *mr = from.ge_p;
-	lp_ast_t *a = mr->an_ast;
-	qed_edge_t *q = lp_mk_qed_edge();
-	q->qed_from = from;
-	q->qed_to = to;
-	q->qed_weight = weight;
-	selem_t sq;
-	sq.sle_p = q;
-	slablist_add(a->ast_rem_q, sq, 0);
-}
-
-selem_t
-rem_qed(selem_t zero, selem_t *e, uint64_t sz)
-{
-	lp_ast_t *a = zero.sle_p;
-	uint64_t i = 0;
-	/*
-	 * XXX We may have to deallocate the ast_nodes.
-	 */
-	while (i < sz) {
-		qed_edge_t *q = e[i].sle_p;
-		/*
-		 * If `p` is not the parent of `c`, then it must be the
-		 * meta_repeater. So we manually disconnect.
-		 */
-		lg_wdisconnect(a->ast_graph, q->qed_from, q->qed_to,
-		    q->qed_weight);
-		//lp_rm_ast_node(q->qed_to.ge_p);
-		lp_rm_qed_edge(q);
-		i++;
-	}
-	return (zero);
-}
-
-/*
- * This function removes all elements in the AST's rem queue.
- */
-void
-clear_rem_q(slablist_t *s)
-{
-	uint64_t e = slablist_get_elems(s);
-	while (e > 0) {
-		slablist_rem(s, ignored, 0, NULL);
-		e--;
-	}
-}
-
-/*
- * Given a repeater that is about to be repeated, this function removes the the
- * links from the meta_repeater to the repeater's children from the most recent
- * iteration. In this way, it effectively 'resets' the meta_repeater.
- */
-void
-reset_meta_repeater(lp_ast_node_t *r)
-{
-	gelem_t meta;
-	lp_ast_t *ast = r->an_ast;
-	ast->ast_meta_targ = r->an_meta;
-	meta.ge_p = r->an_meta;
-	lg_graph_t *g = r->an_ast->ast_graph;
-	if (r->an_ast->ast_rem_q == NULL) {
-		r->an_ast->ast_rem_q = slablist_create("ast_rem_q", NULL, NULL,
-		    SL_ORDERED);
-	}
-	/*
-	 * We queue the edges that link the meta_repeater to its kids. We then
-	 * disconnect the meta_repeater from its children. We queue the edges
-	 * as triples, which have to be allocated and deallocated.
-	 */
-	lg_neighbors(g, meta, meta_rem_con);
-	selem_t zero;
-	zero.sle_p = r->an_ast;
-	slablist_foldr(r->an_ast->ast_rem_q, rem_qed, zero);
-	clear_rem_q(r->an_ast->ast_rem_q);
-}
-
-/*
- * Given a repeater that has state MATCH_PART, this function removes the
- * subtree of the last iteration, which should have failed by now.
- */
-void
-remove_partial_subtree(lp_ast_node_t *r)
-{
-	gelem_t meta;
-	gelem_t z;
-	lp_ast_t *ast = r->an_ast;
-	ast->ast_meta_targ = r->an_meta;
-	meta.ge_p = r->an_meta;
-	r->an_meta = NULL;
-	z.ge_p = meta.ge_p;
-	lg_graph_t *g = r->an_ast->ast_graph;
-	/* queue the whole subtree */
-	lg_bfs_fold(g, meta, NULL, meta_rem_sub, z);
-	/* remove the whole subtree */
-	selem_t zero;
-	zero.sle_p = ast;
-	slablist_foldr(r->an_ast->ast_rem_q, rem_qed, zero);
-}
 
 /*
  * If the ast_node we pop failed to parse, we remove it from memory. We also
@@ -1043,28 +867,126 @@ ast_pop_astn(lp_ast_t *ast)
 	if (l->an_state == ANS_FAIL) {
 		if (p != NULL) {
 			lp_rem_ast_child(p, l);
-			if (p->an_type == REPEATER) {
-				if (p->an_state == ANS_MATCH) {
-					p->an_state = ANS_MATCH_PART;
-					if (p->an_meta != NULL) {
-						remove_partial_subtree(p);
-					}
-					PARSE_MATCH_PART(p);
-				} else {
-					p->an_state = ANS_FAIL;
-					PARSE_FAIL(p);
-				}
-			} else if (p->an_type == SEQUENCER) {
+			if (p->an_type == SEQUENCER) {
 				p->an_state = ANS_FAIL;
 				PARSE_FAIL(p);
 			}
-			
 		}
 		lp_rm_ast_node(l);
 	}
 	if (e > 0) {
+		if (l->an_type == SPLITTER) {
+			ast->ast_nsplit--;
+		}
 		slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
 	}
+}
+
+/*
+ * This function keeps popping ast nodes from the stack until it hits a
+ * splitter.
+ */
+void
+ast_rewind(lp_ast_t *ast)
+{
+	PARSE_REWIND_BEGIN();
+	if (!(ast->ast_nsplit)) {
+		return;
+	}
+	uint64_t e = slablist_get_elems(ast->ast_stack);
+	selem_t last = slablist_end(ast->ast_stack);
+	lp_ast_node_t *l = last.sle_p;
+	/* We are already at the top level slitter */
+	if (ast->ast_nsplit == 1 && l->an_type == SPLITTER) {
+		return;
+	}
+
+	char *N_TMP = NULL;
+	do {
+		PARSE_AST_POP(l);
+		lp_ast_node_t *p = l->an_parent;
+		if (l->an_state == ANS_FAIL) {
+			if (p != NULL) {
+				lp_rem_ast_child(p, l);
+				if (p->an_type == SEQUENCER) {
+					p->an_state = ANS_FAIL;
+					PARSE_FAIL(p);
+				} else if (p->an_type == SPLITTER) {
+					ast_rem_subtree(ast);
+				}
+			}
+			N_TMP = l->an_gnm;
+			lp_rm_ast_node(l);
+		}
+		if (e > 0) {
+			slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
+		}
+
+		e = slablist_get_elems(ast->ast_stack);
+		last = slablist_end(ast->ast_stack);
+		l = last.sle_p;
+	} while (l->an_type != SPLITTER);
+	PARSE_REWIND_END();
+}
+
+void
+lp_queue_removal(lp_ast_node_t *p, lp_ast_node_t *c)
+{
+	lp_ast_t *ast = p->an_ast;
+	lg_graph_t *g = ast->ast_to_remove;
+	gelem_t gp;
+	gelem_t gc;
+	gelem_t weight;
+	gp.ge_p = p;
+	gc.ge_p = c;
+	weight.ge_u = c->an_index;
+
+	lg_wconnect(g, gp, gc, weight);
+}
+
+/*
+ *  We remove an edge from the graph. We use the index-value in the ast_node as
+ *  the weight value. It is, however, a bug in libgraph that we do not pass the
+ *  weight to the callback. When this bug is closed, this callback will have to
+ *  be updated (TODO).
+ */
+void
+queue_subtree_edge(gelem_t to, gelem_t from, gelem_t ignored)
+{
+	lp_ast_node_t *parent = from.ge_p;
+	lp_ast_node_t *child = to.ge_p;
+	lp_queue_removal(parent, child);
+}
+
+void
+rem_subtree_edge(gelem_t from, gelem_t to, gelem_t weight)
+{
+	lp_ast_node_t *parent = from.ge_p;
+	lp_ast_node_t *child = to.ge_p;
+	lp_rem_ast_child(parent, child);
+}
+
+/*
+ * Given an AST node, it will remove all of its descendants. It uses BFS to do
+ * this.
+ */
+void
+ast_rem_subtree(lp_ast_t *ast)
+{
+	ast->ast_to_remove = lg_create_wdigraph();
+	selem_t last = slablist_end(ast->ast_stack);
+	lp_ast_node_t *n = last.sle_p;
+	gelem_t gn;
+	gelem_t ignored;
+	gn.ge_p = n;
+
+	/*
+	 * This function walks the subtree and queues all of its edges for removal.
+	 */
+	lg_bfs_fold(ast->ast_graph, gn, queue_subtree_edge, NULL, ignored);
+	lg_edges(ast->ast_to_remove, rem_subtree_edge);
+	lg_destroy_graph(ast->ast_to_remove);
+	ast->ast_to_remove = NULL;
 }
 
 /*
@@ -1072,7 +994,6 @@ ast_pop_astn(lp_ast_t *ast)
  */
 int on_push(gelem_t, gelem_t, gelem_t *);
 
-void ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an);
 
 /*
  * This function is called from `on_pop` and does all of the necessary updates
@@ -1093,79 +1014,6 @@ on_pop_handle_sequencer(lp_ast_t *ast, lp_ast_node_t *a_top)
 int on_pop(gelem_t gn, gelem_t state);
 
 /*
- * Handles REPEATERS.
- */
-int
-on_pop_handle_repeater(lp_ast_t *ast, lp_ast_node_t *a_top, gelem_t gn,
-    gelem_t state)
-{
-	/*
-	 * XXX once we get to the last if-clause, we want to destroy the failed
-	 * child, mark the repeater as done, possibly get out of the 2nd level
-	 * of nesting, and go to the repeater's parent.
-	 */
-	if (a_top->an_state == ANS_TRY) {
-		a_top->an_state = ANS_MATCH;
-		PARSE_MATCH(a_top);
-	}
-
-	/*
-	 * We don't want to change the offset, since we're going to throw away
-	 * the children that resulted from the partial match.
-	 */
-	if (a_top->an_state != ANS_MATCH_PART) {
-		a_top->an_off_end = a_top->an_last_child->an_off_end;
-		PARSE_AST_NODE_OFF_END(ast->ast_grmr, a_top);
-	}
-
-	if (a_top->an_state == ANS_MATCH && ast->ast_dfs_nesting < 1) {
-		PARSE_REPEAT(a_top);
-		if (a_top->an_meta != NULL) {
-			reset_meta_repeater(a_top);
-		}
-		ast->ast_dfs_nesting = 1;
-		PARSE_NESTING(ast);
-		lg_dfs_rdnt_fold(ast->ast_grmr->grmr_graph, gn,
-		    on_pop, on_push, state);
-		ast->ast_dfs_nesting = 0;
-		/*
-		 * At this point we've finished with our sub-dfs.  Because the
-		 * on_push and on_pop functions maintain a stack of
-		 * ast_node_t's that needs to be implicitly kept in sync with
-		 * the stack maintained by libgraph's dfs() routine, we end up
-		 * popping `a_top` from the stack. From the perspective of the
-		 * sub_dfs this is perfectly acceptable behaviour since, the
-		 * corresponding grmr_node_t is being popped in libgraph.
-		 * However, the grmr_node at the bottom of the sub_dfs's stack
-		 * is the same node that's at the top of _this_ dfs's stack. As
-		 * a result, we have to push the node that was inadvertently
-		 * popped back onto the AST stack.
-		 */
-		selem_t s_re_push = slablist_end(ast->ast_stack);
-		lp_ast_node_t *re_push = s_re_push.sle_p;
-		if (re_push->an_gnm != a_top->an_gnm) {
-			ast_push_astn(ast, re_push->an_last_child);
-		}
-		/*
-		 * Now that we've finished with the sub-dfs we try to
-		 * relaunch it, in case the parse repeats again. We
-		 * don't have to update anything. All of the nodes
-		 * generated by the repeater are its children, thus
-		 * a_top stays the same. 
-		 */
-		PARSE_REPEAT_RETRY(a_top);
-		//goto retry_sub_dfs;
-		return (1);
-	} else if (a_top->an_state == ANS_MATCH &&
-	    ast->ast_dfs_nesting == 1) {
-		ast->ast_dfs_unwind = 1;
-		PARSE_NESTING(ast);
-		return (-1);
-	}
-	return (0);
-}
-
-/*
  * This gets called when we finish with a node.
  */
 int
@@ -1176,8 +1024,6 @@ on_pop(gelem_t gn, gelem_t state)
 	selem_t ast_elem = slablist_end(ast->ast_stack);
 	lp_ast_node_t *a_top = ast_elem.sle_p;
 	int ret = 0;
-	int rep = 1;
-
 
 	switch (a_top->an_type) {
 
@@ -1188,8 +1034,15 @@ on_pop(gelem_t gn, gelem_t state)
 		} else {
 			a_top->an_state = ANS_FAIL;
 			PARSE_FAIL(a_top);
-			ast_pop_astn(ast);
-			return (0);
+			/*
+			 * We know that we have failed at this splitter, since
+			 * we are popping it and it isn't in the matched state
+			 * (a pop implies that we've exhaused all of its
+			 * branches). So we will try to rewind to the preceding
+			 * splitter.
+			 */
+			ast_rewind(ast);
+			return (2);
 		}
 		break;
 
@@ -1201,19 +1054,6 @@ on_pop(gelem_t gn, gelem_t state)
 		if (a_top->an_state == ANS_TRY) {
 			on_pop_handle_sequencer(ast, a_top);
 		}
-		break;
-
-	case REPEATER:
-		while (rep > 0) {
-			rep = on_pop_handle_repeater(ast, a_top, gn, state);
-		}
-		/* Bail early */
-		if (rep < 0) {
-			return (ret);
-		}
-		break;
-
-	case GROUPER:
 		break;
 	}
 
@@ -1233,6 +1073,10 @@ on_pop(gelem_t gn, gelem_t state)
 		PARSE_AST_NODE_OFF_END(ast->ast_grmr, p);
 		PARSE_MATCH(p);
 		ret = 1;
+	} else if (a_top->an_state == ANS_FAIL && a_top->an_type == PARSER) {
+		ret = 2;
+		ast_rewind(ast);
+		return (ret);
 	}
 
 	ast_pop_astn(ast);
@@ -1250,24 +1094,10 @@ ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an)
 		    SL_ORDERED);
 		ast->ast_start = an;
 	}
-	slablist_add(ast->ast_stack, p, 0);
-	/*
-	 * If we are pushing a repeater, we want to create a meta-repeater AST
-	 * node. This node is not reachable from the root of the AST graph. It
-	 * has edges leading to the children of the current iteration of the
-	 * repeater. This means that when we fail to match the last iteration
-	 * of the repeater, we can free and unlink all of the failed and
-	 * matched children of that iteration, by calling DFS on the
-	 * meta-repeater. The meta-repeater is completely empty.
-	 * XXX we can probably create a meta_repeater_t struct that doesn't
-	 * contain anything besides the name.
-	 */
-	if (an->an_type == REPEATER) {
-		lp_ast_node_t *mr = lp_mk_ast_node();
-		mr->an_gnm = lp_nm_meta;
-		mr->an_ast = an->an_ast;
-		an->an_meta = mr;
+	if (an->an_type == SPLITTER) {
+		ast->ast_nsplit++;
 	}
+	slablist_add(ast->ast_stack, p, 0);
 }
 
 int
@@ -1310,15 +1140,12 @@ maybe_create_ast_node(lp_ast_t *ast, lp_grmr_node_t *node)
 	lp_ast_node_t *p = get_last_ast_node(ast);
 	/*
 	 * We don't create an AST node if the parent is a matched splitter
-	 * (i.e. 1 of its kids were matched) or if the parent and the child
-	 * have the same name (which is possible when we run into a repeater --
-	 * we end up pushing the repeater back onto the DFS stack in libgraph,
-	 * but we already have a corresponding AST node. So this function
-	 * returns NULL in order to turn on_push into a no-op for the repeater
-	 * in question. And then business resumes as usual.
+	 * (i.e. 1 of its kids were matched). XXX We also don't create an AST
+	 * node if the parent is a failed sequencer.
 	 */
 	if (p != NULL && ((p->an_type == SPLITTER &&
-	    p->an_state == ANS_MATCH) || p->an_gnm == node->gn_name)) {
+	    p->an_state == ANS_MATCH) || p->an_gnm == node->gn_name ||
+	    (p->an_type == SEQUENCER && p->an_state == ANS_FAIL))) {
 		return (NULL);
 	}
 	lp_ast_node_t *n = lp_create_ast_node(node, ast);
@@ -1334,6 +1161,10 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	gelem_t next;
 	next.ge_p = c;
 	gelem_t weight;
+	if (PARSE_TEST_ADD_CHILD_ENABLED()) {
+		int e = parse_test_add_child(p, c);
+		PARSE_TEST_ADD_CHILD(e);
+	}
 	/*
 	 * So, we handle splitters differently from every other type of ast
 	 * node. A splitter can only ever have 1 child. 
@@ -1356,18 +1187,6 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	lg_graph_t *ast_graph = p->an_ast->ast_graph;
 	lp_grmr_t *grmr = p->an_ast->ast_grmr;
 	lg_wconnect(ast_graph, glast, next, weight);
-	/*
-	 * Over here we connect the repeater's children to its associated
-	 * meta-repeater.
-	 */
-	if (p->an_type == REPEATER) {
-		gelem_t meta;
-		gelem_t meta_weight;
-		meta_weight.ge_u = weight.ge_u;
-		meta.ge_p = p->an_meta;
-		lg_wconnect(ast_graph, meta, next, meta_weight);
-		PARSE_AST_ADD_CHILD(grmr, p->an_meta, c);
-	}
 	PARSE_AST_ADD_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
 		lg_edges(p->an_ast->ast_graph, trace_ast);
@@ -1392,14 +1211,22 @@ lp_set_ast_offsets(lp_ast_t *ast, lp_ast_node_t *n)
 			}
 		}
 	} else if (p != NULL) {
-PARSE_GOT_HERE(1);
 		n->an_off_start = n->an_left->an_off_end;
 	} else {
-PARSE_GOT_HERE(2);
 		n->an_off_start = 0;
 	}
 }
 
+
+int
+on_split(gelem_t n)
+{
+	lp_grmr_node_t *gn = n.ge_p;
+	if (gn->gn_type == SPLITTER) {
+		return (1);
+	}
+	return (0);
+}
 
 /*
  * XXX This comment, or something like it probably belongs above the `run`
@@ -1413,9 +1240,7 @@ PARSE_GOT_HERE(2);
  * ignore parse failuers. The children of a SPLITTER don't represent a
  * sequence, but rather parallel, alternate futures. If the node is a PARSER,
  * we simply try to parse the input, and -- regardless of success or failure --
- * we continue the DFS. If the node is a REPEATER, we push its children
- * one-by-one, parsing as we go. When we double-pop a REPEATER, we try another
- * DFS with that REPEATER as the `start` node.
+ * we continue the DFS.
  */
 int
 on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
@@ -1425,23 +1250,6 @@ on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 	lp_grmr_node_t *node = gn.ge_p;
 	lp_ast_node_t *an = NULL;
 	lp_ast_node_t *last_astn = NULL;
-
-	/*
-	 * We just tried to call DFS again, in on_pop. However, we don't want
-	 * more than 1 level of DFS nesting. So, we return 1, from this
-	 * function, forcing the sub-DFS that we are in to end. Then the
-	 * top-level DFS in on_pop resumes right after the call to the libgraph
-	 * function. And over there, we will try to call DFS again. And so it
-	 * goes until we fail to repeat the parse successfully. We do this
-	 * zig-zagging to prevent the stack-size from exploding -- which it
-	 * does for even the simplest grammars.
-	 */
-	if (ast->ast_dfs_nesting > 0 && ast->ast_dfs_unwind) {
-		ast->ast_dfs_nesting = 0;
-		ast->ast_dfs_unwind = 0;
-		PARSE_NESTING(ast);
-		return (1);
-	}
 
 	an = maybe_create_ast_node(ast, node);
 	if (an == NULL) {
@@ -1492,7 +1300,8 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	/*
 	 * 
 	 */
-	lg_dfs_rdnt_fold(g->grmr_graph, root, on_pop, on_push, state);
+	lg_dfs_br_rdnt_fold(g->grmr_graph, root, on_split, on_pop, on_push,
+	    state);
 	PARSE_RUN_GRMR_END(g, ast);
 	//printf("digraph ast {\n");
 	//lg_edges(ast->ast_graph, print_ast);
@@ -1501,6 +1310,48 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	 * This is here as a filler. What _should_ we return, anyway?
 	 */
 	return (0);
+}
+
+
+
+int
+node_print(gelem_t agg, gelem_t gn, gelem_t *aggp)
+{
+	lp_grmr_node_t *node = gn.ge_p;
+	printf("VISITED: %s\n", node->gn_name);
+	return (0);
+}
+
+void
+relation(gelem_t c, gelem_t p, gelem_t opt)
+{
+	lp_grmr_node_t *pnode = p.ge_p;
+	lp_grmr_node_t *cnode = c.ge_p;
+	printf("CROSSING: %s -> %s\n", pnode->gn_name, cnode->gn_name);
+}
+
+int
+lp_bfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
+{
+	ast->ast_stack = NULL;
+	ast->ast_in = in;
+	ast->ast_sz = sz;
+	ast->ast_grmr = g;
+	gelem_t root;
+	root.ge_p = g->grmr_root;
+	gelem_t state;
+	lp_grmr_node_t *gn = root.ge_p;
+	printf("NAME: %s\n", gn->gn_name);
+	state.ge_p = ast;
+	lg_bfs_fold(g->grmr_graph, root, relation, node_print, state);
+	return (0);
+}
+
+int
+lp_dfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
+{
+	return (0);
+
 }
 
 /*

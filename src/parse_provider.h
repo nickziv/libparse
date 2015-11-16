@@ -283,6 +283,24 @@ extern "C" {
 #define	PARSE_RESET_GRMR_NODE_ENABLED() \
 	__dtraceenabled_parse___reset_grmr_node(0)
 #endif
+#define	PARSE_REWIND_BEGIN() \
+	__dtrace_parse___rewind_begin()
+#ifndef	__sparc
+#define	PARSE_REWIND_BEGIN_ENABLED() \
+	__dtraceenabled_parse___rewind_begin()
+#else
+#define	PARSE_REWIND_BEGIN_ENABLED() \
+	__dtraceenabled_parse___rewind_begin(0)
+#endif
+#define	PARSE_REWIND_END() \
+	__dtrace_parse___rewind_end()
+#ifndef	__sparc
+#define	PARSE_REWIND_END_ENABLED() \
+	__dtraceenabled_parse___rewind_end()
+#else
+#define	PARSE_REWIND_END_ENABLED() \
+	__dtraceenabled_parse___rewind_end(0)
+#endif
 #define	PARSE_RUN_GRMR_BEGIN(arg0, arg1) \
 	__dtrace_parse___run_grmr_begin(arg0, arg1)
 #ifndef	__sparc
@@ -327,6 +345,15 @@ extern "C" {
 #else
 #define	PARSE_STACK_ELEMS_ENABLED() \
 	__dtraceenabled_parse___stack_elems(0)
+#endif
+#define	PARSE_TEST_ADD_CHILD(arg0) \
+	__dtrace_parse___test_add_child(arg0)
+#ifndef	__sparc
+#define	PARSE_TEST_ADD_CHILD_ENABLED() \
+	__dtraceenabled_parse___test_add_child()
+#else
+#define	PARSE_TEST_ADD_CHILD_ENABLED() \
+	__dtraceenabled_parse___test_add_child(0)
 #endif
 #define	PARSE_TEST_AST_NODE(arg0) \
 	__dtrace_parse___test_ast_node(arg0)
@@ -573,6 +600,18 @@ extern int __dtraceenabled_parse___reset_grmr_node(void);
 #else
 extern int __dtraceenabled_parse___reset_grmr_node(long);
 #endif
+extern void __dtrace_parse___rewind_begin(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___rewind_begin(void);
+#else
+extern int __dtraceenabled_parse___rewind_begin(long);
+#endif
+extern void __dtrace_parse___rewind_end(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___rewind_end(void);
+#else
+extern int __dtraceenabled_parse___rewind_end(long);
+#endif
 extern void __dtrace_parse___run_grmr_begin(lp_grmr_t *, lp_ast_t *);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___run_grmr_begin(void);
@@ -602,6 +641,12 @@ extern void __dtrace_parse___stack_elems(uint64_t, uint64_t);
 extern int __dtraceenabled_parse___stack_elems(void);
 #else
 extern int __dtraceenabled_parse___stack_elems(long);
+#endif
+extern void __dtrace_parse___test_add_child(int);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___test_add_child(void);
+#else
+extern int __dtraceenabled_parse___test_add_child(long);
 #endif
 extern void __dtrace_parse___test_ast_node(int);
 #ifndef	__sparc
@@ -708,6 +753,10 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_REPEAT_RETRY_ENABLED() (0)
 #define	PARSE_RESET_GRMR_NODE(arg0, arg1, arg2)
 #define	PARSE_RESET_GRMR_NODE_ENABLED() (0)
+#define	PARSE_REWIND_BEGIN()
+#define	PARSE_REWIND_BEGIN_ENABLED() (0)
+#define	PARSE_REWIND_END()
+#define	PARSE_REWIND_END_ENABLED() (0)
 #define	PARSE_RUN_GRMR_BEGIN(arg0, arg1)
 #define	PARSE_RUN_GRMR_BEGIN_ENABLED() (0)
 #define	PARSE_RUN_GRMR_END(arg0, arg1)
@@ -718,6 +767,8 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_SPLIT_ENABLED() (0)
 #define	PARSE_STACK_ELEMS(arg0, arg1)
 #define	PARSE_STACK_ELEMS_ENABLED() (0)
+#define	PARSE_TEST_ADD_CHILD(arg0)
+#define	PARSE_TEST_ADD_CHILD_ENABLED() (0)
 #define	PARSE_TEST_AST_NODE(arg0)
 #define	PARSE_TEST_AST_NODE_ENABLED() (0)
 #define	PARSE_TEST_DFS_COOKIE(arg0)

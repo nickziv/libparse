@@ -13,6 +13,7 @@ inline string tok_op[int op] =
 
 inline string e_test_descr[int err] =
 	err == 0 ? "[ PASS ]" :
+	err == 1 ? "[ BAD AST CHILD ]" :
 	"[[BAD ERROR CODE]]";
 
 typedef enum regex_op {
@@ -26,7 +27,7 @@ typedef uintptr_t lp_tok_ls_t;
 typedef uintptr_t slablist_bm_t;
 typedef struct regex_seg {
 	regex_op_t	rs_op;
-	int		rs_ir; /* id of grmr_node this seg is part of */
+	int		rs_g; /* id of grmr_node this seg is part of */
 	uint8_t		rs_width; /* in bits */
 	size_t		rs_size;
 	char		*rs_data;
@@ -157,38 +158,40 @@ translator an_info_t < lp_ast_node_t *a >
 };
 
 typedef struct lp_grmr_node {
-        n_type_t        gn_type;
-        uint16_t        gn_kids;
-        char            *gn_name;
-        char            *gn_bnd_name;
-        /* If the node is a parser, it needs a token to parse */
-        char            *gn_tok;
+	n_type_t        gn_type;
+	uint16_t        gn_kids;
+	char            *gn_name;
+	/* If the node is a parser, it needs a token to parse */
+	char            *gn_tok;
 } lp_grmr_node_t;
 
-/*
 typedef struct gn_info {
-	string		gni_nm;
 	char		gni_type;
-	char		gni_err_status;
-	char		gni_repeat;
+	uint64_t	gni_kids;
+	string		gni_name;
+	string		gni_tok;
 } gn_info_t;
 
 #pragma D binding "1.6.1" translator
-translator gn_info_t < lp_grmr_node_t *ir >
+translator gn_info_t < lp_grmr_node_t *g >
 {
-	gni_nm = copyinstr(*(uintptr_t *)
+	gni_name = copyinstr(*(uintptr_t *)
 			copyin(
-			(uintptr_t)&ir->ir_nm,
-			sizeof (ir->ir_nm)));
+			(uintptr_t)&g->gn_name,
+			sizeof (g->gn_name)));
 
-	gni_type = *(char *)copyin((uintptr_t)&ir->ir_type,
-			sizeof (ir->ir_type));
-	gni_err_status = *(char *)copyin((uintptr_t)&ir->ir_err_status,
-			sizeof (ir->ir_err_status));
-	gni_repeat = *(char *)copyin((uintptr_t)&ir->ir_repeat,
-			sizeof (ir->ir_repeat));
+	gni_type = *(char *)copyin((uintptr_t)&g->gn_type,
+			sizeof (g->gn_type));
+
+	gni_kids = *(uint64_t *)copyin((uintptr_t)&g->gn_kids,
+			sizeof (g->gn_kids));
+
+	gni_tok = copyinstr(*(uintptr_t *)
+			copyin(
+			(uintptr_t)&g->gn_tok,
+			sizeof (g->gn_tok)));
+
 };
-*/
 
 struct lp_grmr {
         uint64_t        grmr_refcnt;

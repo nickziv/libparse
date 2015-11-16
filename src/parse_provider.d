@@ -27,6 +27,8 @@ ress.
 	probe stack_elems(uint64_t, uint64_t);
 	probe grmr_add_child(lp_grmr_t *g, char *p, char *c, uint64_t u);
 	probe ast_push(lp_ast_node_t *n) : (an_info_t *n);
+	probe rewind_begin();
+	probe rewind_end();
 	probe ast_pop(lp_ast_node_t *n) : (an_info_t *n);
 	probe ast_add_child(lp_grmr_t *g, lp_ast_node_t *p, lp_ast_node_t *c) :
 		(grmrinfo_t *g, an_info_t *p, an_info_t *c);
@@ -87,6 +89,7 @@ ress.
 	/*
 	 * The test probes.
 	 */
+	probe test_add_child(int e);
 	probe test_token(int e);
 	probe test_grmr_node(int e);
 	probe test_ast_node(int e);

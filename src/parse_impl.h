@@ -11,6 +11,7 @@
 #include <slablist.h>
 #include <setjmp.h>
 #include <graph.h>
+#include <strings.h>
 #include "parse.h"
 
 typedef struct tok_seg {
@@ -38,19 +39,15 @@ typedef struct content {
  * Every ast_node_t has an associated state. The ANS_TRY state is the starting
  * state. It basically signifies that we have yet to try to match the input the
  * ast_node's associates grmr_node. Once we actually try to get a match, we can
- * either reach ANS_FAIL or ANS_MATCH. Unless we are talking about a repeater,
- * which can also have the state ANS_MATCH_PART. ANS_MATCH_PART means that we
- * matched all of the repeater's children at least once, but that the latest
- * attempted repetition failed (because the repetition is over). It's possible
- * to a reapter to enter the ANS_MATCH state if the end of repetition coincides
- * with the end of input.
+ * either reach ANS_FAIL or ANS_MATCH. 
  */
 typedef enum ast_node_st {
 	ANS_TRY = 0,
 	ANS_FAIL,
-	ANS_MATCH,
-	ANS_MATCH_PART
+	ANS_MATCH
 } ast_node_st_t;
+
+
 
 /*
  * The ast_node is the result of running/evaluating an grmr_node. The ast_node
@@ -72,23 +69,10 @@ struct lp_ast_node {
 	lp_ast_node_t	*an_left;
 	lp_ast_node_t	*an_right;
 	content_t	*an_content;
-	grouper_t	*an_grouper;
 	ast_node_st_t	an_state;
 	uint32_t	an_off_start;
 	uint32_t	an_off_end;
 };
-
-typedef struct grouper {
-	char		*b_name;
-	char		b_flag; /* current nest-level */
-	slablist_t	*b_stack; /* stack of ast_nodes that are being bound */
-	/*
-	 * XXX should this be a name or a pointer?
-	 */
-	char		*b_scope; /* The grouper must be a child of `scope` */
-	char		*b_start; /* this is the starting grmr_node */
-	char		*b_end; /* this is the ending grmr_node */
-} grouper_t;
 
 /*
  * We divide the 64-bit gelem into 2 32-bit integers. The first integer
@@ -125,7 +109,6 @@ typedef struct lp_grmr_node {
 	n_type_t	gn_type;
 	uint16_t	gn_kids;
 	char		*gn_name;
-	char		*gn_grp_name;
 	/* If the node is a parser, it needs a token to parse */
 	char		*gn_tok;
 } lp_grmr_node_t;
@@ -147,23 +130,39 @@ struct lp_grmr {
 
 
 /*
- * The result carries some state, a return status, and the root ast_node. It
- * contains either a full or partial ast_node tree.
+ * The `lp_ast` struct carries some state, a return status, and the root
+ * ast_node. It contains either a full or partial ast_node tree. The tree is
+ * implemented in terms of a graph. There is also another graph which is called
+ * `ast_to_remove`. This is where we store edges from `ast_graph` , which will
+ * be removed later. The idea is that we essentially clone a subgraph of
+ * `ast_graph` into `ast_to_remove`, and then we iterate over `ast_to_remove`
+ * using `lg_edges` and call `lp_rem_ast_child() on the two nodes in each edge.
+ * We do this, because we can't simultaneously walk a graph and modify it --
+ * doing so confuses the walking routines which assume that the graph isn't
+ * changing beneath their feet.
+ *
+ * Note that the `ast_to_remove` graph has the unfortunate property of
+ * requiring log(N) insertions instead of O(1) insertions -- it's really just a
+ * queue. A future feature of libgraph will include an edge-queue structure
+ * which allow one to use lg_connect() code to add edges to the queue, and
+ * iterate over them in a linear fashion. One _could_ implement the equivalent
+ * functionality in libparse instead, but we would rather let libgraph re-use
+ * its own edge_t structs. Until this feature gets implemented we will use the
+ * lg_graph_t (TODO).
  */
 struct lp_ast {
 	int		ast_fin;
 	lp_ast_node_t	*ast_start; /* starting ast_node */
-	lp_ast_node_t	*ast_meta_targ; /* the target meta */ 
-	lg_graph_t	*ast_graph;
+	lg_graph_t	*ast_graph; /* the abstract syntax tree */
 	slablist_t	*ast_nodes; /* index of ast_nodes */
 	slablist_t	*ast_rem_q;
 	lp_grmr_t	*ast_grmr;
 	void		*ast_in;
 	size_t		ast_sz;
 	int		ast_matched;
+	uint32_t	ast_nsplit; /* splitters pushed to stack */
 	slablist_t	*ast_stack;
-	int		ast_dfs_nesting;
-	int		ast_dfs_unwind;
+	lg_graph_t	*ast_to_remove;
 };
 
 /*
@@ -205,3 +204,8 @@ void lp_rm_content(content_t *);
 void lp_rm_qed_edge(qed_edge_t *);
 void lp_rm_buf(void *, size_t);
 int parse_umem_init(void);
+
+/*
+ * Functions used in more than one file.
+ */
+lp_grmr_node_t *find_grmr_node(lp_grmr_t *, char *);

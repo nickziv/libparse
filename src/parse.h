@@ -57,14 +57,6 @@ typedef enum n_type {
 	 * parsed next.
 	 */
 	SPLITTER,
-	/*
-	 * Repeats its children as many times as it can.
-	 */
-	REPEATER,
-	/*
-	 * Groups its children.
-	 */
-	GROUPER,
 	PARSER
 } n_type_t;
 
@@ -91,14 +83,11 @@ int lp_create_grmr_node(lp_grmr_t *g, char *name, char *tok, n_type_t ntype);
 //void lp_rem_edge(lp_grmr_t *g, uint64_t from, uint64_t to);
 //void lp_add_child(lp_grmr_t *g, uint64_t parent, uint64_t child);
 int lp_add_child(lp_grmr_t *g, char *parent, char *child);
-int lp_add_grouping(lp_grmr_t *g, char *start, char *end, char *scope);
 /* we add a root grmr_node --- we can have at least one */
 int lp_root_grmr_node(lp_grmr_t *g, char *nm);
 /* useful for making modified/derivative grammars */
 /* TODO implement replace */
 int lp_replace_grmr_node(lp_grmr_t *g, uint64_t gnid, uint64_t swid);
-int lp_group_grmr_node(lp_grmr_t *g, char *nm, char *sid,
-    char *eid, char *win);
 int lp_scrub_grammar(lp_grmr_t *g);
 lp_ast_t *lp_create_ast();
 void lp_destroy_ast(lp_ast_t *);
@@ -117,5 +106,7 @@ typedef void lp_grmr_cb_t(lp_grmr_node_t *);
 typedef void lp_ast_cb_t(lp_grmr_node_t *);
 void lp_walk_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);
 void lp_walk_grmr_bfs(lp_grmr_t *, lp_grmr_cb_t);
+int lp_bfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
+int lp_dfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
 void lp_walk_ast_dfs(lp_grmr_t *, lp_ast_cb_t);
 void lp_walk_ast_bfs(lp_grmr_t *, lp_ast_cb_t);
