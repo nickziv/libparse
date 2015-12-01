@@ -175,26 +175,100 @@ gr_calc_paren()
 
 }
 
+lp_grmr_t *
+gr_simple_splitting()
+{
+	return (NULL);
+}
+
+lp_grmr_t *
+gr_simple_nesting()
+{
+	lp_grmr_t *g = lp_create_grammar("nesting");
+	char *ws = " \t\n";
+	char *letter = "abcdefghijklmnopqrstuvwxyz";
+	char *opar = "(";
+	char *cpar = ")";
+	lp_tok_t *toptws = lp_create_tok(g, "optws");
+	lp_add_tok_op(toptws, ROP_ANYOF_ZERO_ONE_PLUS, 8, 3, ws);
+	lp_tok_t *tchar = lp_create_tok(g, "char");
+	lp_add_tok_op(tchar, ROP_ANYOF, 8, 26, letter);
+	lp_tok_t *topar = lp_create_tok(g, "opar");
+	lp_add_tok_op(topar, ROP_ONE, 8, 1, opar);
+	lp_tok_t *tcpar = lp_create_tok(g, "cpar");
+	lp_add_tok_op(tcpar, ROP_ONE, 8, 1, cpar);
+
+	int r = lp_create_grmr_node(g, "expr", NULL, SPLITTER);
+	lp_root_grmr_node(g, "expr");
+	r = lp_create_grmr_node(g, "char", "char", PARSER);
+	r = lp_create_grmr_node(g, "letter", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "letter_rep", NULL, SEQUENCER);
+	//r = lp_create_grmr_node(g, "_split_letters", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "letters", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "list", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "opar", "opar", PARSER);
+	r = lp_create_grmr_node(g, "cpar", "cpar", PARSER);
+	r = lp_create_grmr_node(g, "optws", "optws", PARSER);
+
+	lp_add_child(g, "expr", "list");
+	lp_add_child(g, "expr", "letters");
+
+	lp_add_child(g, "letter", "optws");
+	lp_add_child(g, "letter", "char");
+
+	lp_add_child(g, "letter_rep", "letter");
+	lp_add_child(g, "letter_rep", "letters");
+
+	//lp_add_child(g, "_split_letters", "letters");
+
+	/* Parse one or more letters */
+	lp_add_child(g, "letters", "letter_rep");
+	lp_add_child(g, "letters", "letter");
+
+	/* Handle nesting */
+	lp_add_child(g, "list", "opar");
+	lp_add_child(g, "list", "expr");
+	lp_add_child(g, "list", "cpar");
+	lp_add_child(g, "list", "expr");
+
+	return (g);
+}
+
 //char *calc_test1 = "1 + 2 - 3 * 4/5+34 >= 100&&56<=0;";
 //char *calc_test1 = "1 + 2 - 3 * 4 - 5 + 34 >= 100 && 56 <= 0;";
 char *calc_test1 = "1 + 2 - 3;";
 char *calc_paren_test = "(1 + 2 - 3) * 4/5+34 >= 100&&56<=0";
+char *nesting = "(a b c d (( e f g ) h i j k)";
+char *splitting= "a b 4 _ c 6 + @ ! ---";
 
 int
 main()
 {
-	lp_grmr_t *calc = gr_calc();
-	lp_grmr_t *calc_paren = gr_calc_paren();
+	//lp_grmr_t *calc = gr_calc();
+	//lp_grmr_t *calc_paren = gr_calc_paren();
+	lp_grmr_t *gnesting = gr_simple_nesting();
+	//lp_grmr_t *gsplitting = gr_simple_splitting();
 	size_t calc_test1_sz = strlen(calc_test1);
 	size_t calc_paren_test_sz = strlen(calc_paren_test);
+	size_t nesting_sz = strlen(nesting);
+	size_t splitting_sz = strlen(splitting);
 	/* convert to bits */
 	calc_test1_sz *= 8;
 	calc_paren_test_sz *= 8;
+	nesting_sz *= 8;
 	//lp_ast_t *calc_res = lp_create_ast();
 	//lp_run_grammar(calc, calc_res, calc_test1, calc_test1_sz);
-	lp_ast_t *calc_paren_res = lp_create_ast();
-	lp_run_grammar(calc_paren, calc_paren_res, calc_paren_test,
-	    calc_paren_test_sz);
+	//lp_ast_t *calc_paren_res = lp_create_ast();
+	//lp_run_grammar(calc_paren, calc_paren_res, calc_paren_test,
+	    //calc_paren_test_sz);
+	lp_ast_t *nesting_ast = lp_create_ast();
+	//lp_ast_t *splitting_ast = lp_create_ast();
+	printf("NESTING SZ = %u\n", nesting_sz);
+	lp_run_grammar(gnesting, nesting_ast, nesting, nesting_sz);
+	lp_dump_grmr(gnesting);
+	//lp_run_grammar(gsplitting, splitting_ast, splitting, splitting_sz);
+
+	//lp_run_grammar(calc, calc_res, calc_test1, calc_test1_sz);
 	/* OMG, it worked */
 	/*
 	lp_grmr_t *calc_paren = gr_calc_paren(calc);

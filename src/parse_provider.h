@@ -355,6 +355,15 @@ extern "C" {
 #define	PARSE_TEST_ADD_CHILD_ENABLED() \
 	__dtraceenabled_parse___test_add_child(0)
 #endif
+#define	PARSE_TEST_AST(arg0) \
+	__dtrace_parse___test_ast(arg0)
+#ifndef	__sparc
+#define	PARSE_TEST_AST_ENABLED() \
+	__dtraceenabled_parse___test_ast()
+#else
+#define	PARSE_TEST_AST_ENABLED() \
+	__dtraceenabled_parse___test_ast(0)
+#endif
 #define	PARSE_TEST_AST_NODE(arg0) \
 	__dtrace_parse___test_ast_node(arg0)
 #ifndef	__sparc
@@ -364,14 +373,14 @@ extern "C" {
 #define	PARSE_TEST_AST_NODE_ENABLED() \
 	__dtraceenabled_parse___test_ast_node(0)
 #endif
-#define	PARSE_TEST_DFS_COOKIE(arg0) \
-	__dtrace_parse___test_dfs_cookie(arg0)
+#define	PARSE_TEST_GRMR(arg0) \
+	__dtrace_parse___test_grmr(arg0)
 #ifndef	__sparc
-#define	PARSE_TEST_DFS_COOKIE_ENABLED() \
-	__dtraceenabled_parse___test_dfs_cookie()
+#define	PARSE_TEST_GRMR_ENABLED() \
+	__dtraceenabled_parse___test_grmr()
 #else
-#define	PARSE_TEST_DFS_COOKIE_ENABLED() \
-	__dtraceenabled_parse___test_dfs_cookie(0)
+#define	PARSE_TEST_GRMR_ENABLED() \
+	__dtraceenabled_parse___test_grmr(0)
 #endif
 #define	PARSE_TEST_GRMR_NODE(arg0) \
 	__dtrace_parse___test_grmr_node(arg0)
@@ -382,23 +391,23 @@ extern "C" {
 #define	PARSE_TEST_GRMR_NODE_ENABLED() \
 	__dtraceenabled_parse___test_grmr_node(0)
 #endif
-#define	PARSE_TEST_MATCH(arg0) \
-	__dtrace_parse___test_match(arg0)
+#define	PARSE_TEST_TOK(arg0) \
+	__dtrace_parse___test_tok(arg0)
 #ifndef	__sparc
-#define	PARSE_TEST_MATCH_ENABLED() \
-	__dtraceenabled_parse___test_match()
+#define	PARSE_TEST_TOK_ENABLED() \
+	__dtraceenabled_parse___test_tok()
 #else
-#define	PARSE_TEST_MATCH_ENABLED() \
-	__dtraceenabled_parse___test_match(0)
+#define	PARSE_TEST_TOK_ENABLED() \
+	__dtraceenabled_parse___test_tok(0)
 #endif
-#define	PARSE_TEST_TOKEN(arg0) \
-	__dtrace_parse___test_token(arg0)
+#define	PARSE_TEST_TOK_SEG(arg0) \
+	__dtrace_parse___test_tok_seg(arg0)
 #ifndef	__sparc
-#define	PARSE_TEST_TOKEN_ENABLED() \
-	__dtraceenabled_parse___test_token()
+#define	PARSE_TEST_TOK_SEG_ENABLED() \
+	__dtraceenabled_parse___test_tok_seg()
 #else
-#define	PARSE_TEST_TOKEN_ENABLED() \
-	__dtraceenabled_parse___test_token(0)
+#define	PARSE_TEST_TOK_SEG_ENABLED() \
+	__dtraceenabled_parse___test_tok_seg(0)
 #endif
 #define	PARSE_TRACE_AST(arg0, arg1, arg2, arg3) \
 	__dtrace_parse___trace_ast(arg0, arg1, arg2, arg3)
@@ -648,17 +657,23 @@ extern int __dtraceenabled_parse___test_add_child(void);
 #else
 extern int __dtraceenabled_parse___test_add_child(long);
 #endif
+extern void __dtrace_parse___test_ast(int);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___test_ast(void);
+#else
+extern int __dtraceenabled_parse___test_ast(long);
+#endif
 extern void __dtrace_parse___test_ast_node(int);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___test_ast_node(void);
 #else
 extern int __dtraceenabled_parse___test_ast_node(long);
 #endif
-extern void __dtrace_parse___test_dfs_cookie(int);
+extern void __dtrace_parse___test_grmr(int);
 #ifndef	__sparc
-extern int __dtraceenabled_parse___test_dfs_cookie(void);
+extern int __dtraceenabled_parse___test_grmr(void);
 #else
-extern int __dtraceenabled_parse___test_dfs_cookie(long);
+extern int __dtraceenabled_parse___test_grmr(long);
 #endif
 extern void __dtrace_parse___test_grmr_node(int);
 #ifndef	__sparc
@@ -666,17 +681,17 @@ extern int __dtraceenabled_parse___test_grmr_node(void);
 #else
 extern int __dtraceenabled_parse___test_grmr_node(long);
 #endif
-extern void __dtrace_parse___test_match(int);
+extern void __dtrace_parse___test_tok(int);
 #ifndef	__sparc
-extern int __dtraceenabled_parse___test_match(void);
+extern int __dtraceenabled_parse___test_tok(void);
 #else
-extern int __dtraceenabled_parse___test_match(long);
+extern int __dtraceenabled_parse___test_tok(long);
 #endif
-extern void __dtrace_parse___test_token(int);
+extern void __dtrace_parse___test_tok_seg(int);
 #ifndef	__sparc
-extern int __dtraceenabled_parse___test_token(void);
+extern int __dtraceenabled_parse___test_tok_seg(void);
 #else
-extern int __dtraceenabled_parse___test_token(long);
+extern int __dtraceenabled_parse___test_tok_seg(long);
 #endif
 extern void __dtrace_parse___trace_ast(lp_ast_t *, lp_ast_node_t *, lp_ast_node_t *, uint64_t);
 #ifndef	__sparc
@@ -769,16 +784,18 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_STACK_ELEMS_ENABLED() (0)
 #define	PARSE_TEST_ADD_CHILD(arg0)
 #define	PARSE_TEST_ADD_CHILD_ENABLED() (0)
+#define	PARSE_TEST_AST(arg0)
+#define	PARSE_TEST_AST_ENABLED() (0)
 #define	PARSE_TEST_AST_NODE(arg0)
 #define	PARSE_TEST_AST_NODE_ENABLED() (0)
-#define	PARSE_TEST_DFS_COOKIE(arg0)
-#define	PARSE_TEST_DFS_COOKIE_ENABLED() (0)
+#define	PARSE_TEST_GRMR(arg0)
+#define	PARSE_TEST_GRMR_ENABLED() (0)
 #define	PARSE_TEST_GRMR_NODE(arg0)
 #define	PARSE_TEST_GRMR_NODE_ENABLED() (0)
-#define	PARSE_TEST_MATCH(arg0)
-#define	PARSE_TEST_MATCH_ENABLED() (0)
-#define	PARSE_TEST_TOKEN(arg0)
-#define	PARSE_TEST_TOKEN_ENABLED() (0)
+#define	PARSE_TEST_TOK(arg0)
+#define	PARSE_TEST_TOK_ENABLED() (0)
+#define	PARSE_TEST_TOK_SEG(arg0)
+#define	PARSE_TEST_TOK_SEG_ENABLED() (0)
 #define	PARSE_TRACE_AST(arg0, arg1, arg2, arg3)
 #define	PARSE_TRACE_AST_ENABLED() (0)
 #define	PARSE_UNMATCHED_BITS(arg0, arg1, arg2, arg3, arg4)

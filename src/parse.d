@@ -1,3 +1,35 @@
+inline int E_AST_CHILD = 1;
+inline int E_ASTN_ID = 2;
+inline int E_ASTN_TYPE = 3;
+inline int E_ASTN_NULL_GNM = 4;
+inline int E_ASTN_OFFSET = 5;
+inline int E_ASTN_LR = 6;
+inline int E_ASTN_LRPTRSN = 7;
+inline int E_AST_NEIGHBOR = 8;
+inline int E_AST_NEIGHBORS = 9;
+inline int E_ASTN_NO_PARENT = 10;
+inline int E_ASTN_NO_LAST_CHILD = 11;
+inline int E_ASTN_TOO_FEW_KIDS = 12;
+inline int E_ASTN_STATE = 13;
+inline int E_ASTN_OFF_START_GT_IN = 14;
+inline int E_ASTN_OFF_END_GT_IN = 15;
+inline int E_ASTN_LRPTRS = 16;
+inline int E_ASTN_LRPTRS_NULL = 17;
+inline int E_ASTN_CONTENT = 18;
+inline int E_ASTN_NO_CONTENT = 19;
+inline int E_GN_TYPE = 20;
+inline int E_GN_TOK_NULL = 21;
+inline int E_GN_NAME_NULL = 23;
+inline int E_AST_NULL_INPUT = 24;
+inline int E_AST_ZERO_SIZE_INPUT = 25;
+inline int E_TOK_NAME_NULL = 26;
+inline int E_TOK_SEGS_NULL = 27;
+inline int E_TOK_SEGS_EMPTY = 28;
+inline int E_TSEG_OP = 29;
+inline int E_TSEG_WIDTH_ZERO = 30;
+inline int E_TSEG_DATA = 31;
+inline int E_AST_NSPLIT_TOO_BIG = 32;
+inline int E_AST_NSPLIT_TOO_SMALL = 33;
 
 inline string tok_op[int op] =
 	op == 0 ? "ROP_ZERO_ONE" :
@@ -13,7 +45,38 @@ inline string tok_op[int op] =
 
 inline string e_test_descr[int err] =
 	err == 0 ? "[ PASS ]" :
-	err == 1 ? "[ BAD AST CHILD ]" :
+	err == E_AST_CHILD ? "[ BAD AST CHILD ]" :
+	err == E_ASTN_ID ? "[ AST ID TOO BIG ]" :
+	err == E_ASTN_TYPE ? "[ INVALID ASTN TYPE ]" :
+	err == E_ASTN_NULL_GNM ? "[ ASTN NO GNM ]" :
+	err == E_ASTN_OFFSET ? "[ OFF START > OFF END ]" :
+	err == E_ASTN_LR ? "[ unused ]" :
+	err == E_ASTN_LRPTRSN ? "[ unused ]" :
+	err == E_AST_NEIGHBOR ? "[ ]" :
+	err == E_AST_NEIGHBORS ? "[ ]" :
+	err == E_ASTN_NO_PARENT ? "[ AST NODE NO PARENT ]" :
+	err == E_ASTN_NO_LAST_CHILD ? "[ AST NODE NO LAST CHILD ]" :
+	err == E_ASTN_TOO_FEW_KIDS ? "[ AST NODE TOO FEW KIDS ]" :
+	err == E_ASTN_STATE ? "[ BAD AST NODE STATE ]" :
+	err == E_ASTN_OFF_START_GT_IN ? "[ OFF START > AST IN SZ ]" :
+	err == E_ASTN_OFF_END_GT_IN ? "[ OFF END > AST IN SZ ]" :
+	err == E_ASTN_LRPTRS ? "[ ONLY CHILD HAS LEFT/RIGHT ]" :
+	err == E_ASTN_LRPTRS_NULL ? "[ SIBLING HAS NO LEFT/RIGHT ]" :
+	err == E_ASTN_CONTENT ? "[ NON PARSER HAS CONTENT ]" :
+	err == E_ASTN_NO_CONTENT ? "[ PARSER HAS NO CONTENT ]" :
+	err == E_GN_TYPE ? "[ INVALID GNODE TYPE ]" :
+	err == E_GN_TOK_NULL ? "[ GNODE TOKEN NULL ]" :
+	err == E_GN_NAME_NULL ? "[ GNODE NAME NULL ]" :
+	err == E_AST_NULL_INPUT ? "[ AST HAS NULL INPUT ]" :
+	err == E_AST_ZERO_SIZE_INPUT ? "[ AST HAS ZERO SIZED INPUT ]" :
+	err == E_TOK_NAME_NULL ? "[ TOK NAME NULL ]" :
+	err == E_TOK_SEGS_NULL ? "[ TOK SEGS NULL ]" :
+	err == E_TOK_SEGS_EMPTY ? "[ TOK SEGS EMPTY ]" :
+	err == E_TSEG_OP ? "[ TSEG OP INVALID ]" :
+	err == E_TSEG_WIDTH_ZERO ? "[ TSEG WIDTH ZERO ]" :
+	err == E_TSEG_DATA ? "[ TSEG DATA NULL ]" :
+	err == E_AST_NSPLIT_TOO_BIG ? "[ NSPLIT TOO BIG ]" :
+	err == E_AST_NSPLIT_TOO_SMALL ? "[ NSPLIT TOO SMALL ]" :
 	"[[BAD ERROR CODE]]";
 
 typedef enum regex_op {
@@ -96,21 +159,20 @@ typedef enum ast_node_st {
 
 
 struct lp_ast_node {
-        uint64_t        an_id; /* unique id */
-        n_type_t        an_type;
-        char            *an_gnm; /* grmr_node id */
-        lp_ast_t        *an_ast;
-        uint32_t        an_kids;
-        uint32_t        an_index;
-	lp_ast_node_t	*an_meta;
-        lp_ast_node_t   *an_parent;
-        lp_ast_node_t   *an_last_child;
-        lp_ast_node_t   *an_left;
-        lp_ast_node_t   *an_right;
-        content_t       *an_content;
-        ast_node_st_t   an_state;
-        uint32_t        an_off_start;
-        uint32_t        an_off_end;
+	uint64_t        an_id; /* unique id */
+	n_type_t        an_type;
+	char            *an_gnm; /* grmr_node id */
+	lp_ast_t        *an_ast;
+	uint32_t        an_kids;
+	uint32_t        an_index;
+	lp_ast_node_t   *an_parent;
+	lp_ast_node_t   *an_last_child;
+	lp_ast_node_t   *an_left;
+	lp_ast_node_t   *an_right;
+	content_t       *an_content;
+	ast_node_st_t   an_state;
+	uint32_t        an_off_start;
+	uint32_t        an_off_end;
 };
 
 typedef struct an_info {
@@ -119,7 +181,6 @@ typedef struct an_info {
 	uint32_t	ani_type;
 	uint32_t	ani_kids;
 	uint32_t	ani_index;
-	void		*ani_meta;
 	void		*ani_parent;
 	void		*ani_last_child;
 	void		*ani_right;
@@ -143,9 +204,6 @@ translator an_info_t < lp_ast_node_t *a >
 
 	ani_type = *(uint32_t *)copyin((uintptr_t)&a->an_type,
 			sizeof (a->an_type));
-
-	ani_meta = *(void **)copyin((uintptr_t)&a->an_meta,
-			sizeof (a->an_meta));
 
 	ani_state = *(uint32_t *)copyin((uintptr_t)&a->an_state,
 			sizeof (a->an_state));

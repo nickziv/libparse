@@ -110,3 +110,4 @@ int lp_bfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
 int lp_dfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
 void lp_walk_ast_dfs(lp_grmr_t *, lp_ast_cb_t);
 void lp_walk_ast_bfs(lp_grmr_t *, lp_ast_cb_t);
+void lp_dump_grmr(lp_grmr_t *);

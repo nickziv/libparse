@@ -79,6 +79,14 @@ lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
 	sl_elem.sle_p = ts;
 	/* bcopy(data, buf, bytes); */
 	slablist_add(t->tok_segs, sl_elem, 0);
+	if (PARSE_TEST_TOK_ENABLED()) {
+		int test = lp_test_tok(t);
+		PARSE_TEST_TOK(test);
+	}
+	if (PARSE_TEST_TOK_SEG_ENABLED()) {
+		int test = lp_test_tok_seg(ts);
+		PARSE_TEST_TOK(test);
+	}
 	return (0);
 }
 
@@ -532,14 +540,6 @@ add_grmr_node(lp_grmr_t *g, lp_grmr_node_t *grmr_node)
 }
 
 void
-add_grouper(lp_grmr_t *g, lp_grmr_node_t *grmr_node)
-{
-	selem_t ie;
-	ie.sle_p = grmr_node;
-	slablist_add(g->grmr_groupers, ie, 0);
-}
-
-void
 rem_grmr_node(lp_grmr_t *g, uint64_t irid)
 {
 	selem_t ge;
@@ -554,6 +554,12 @@ int
 lp_create_grmr_node(lp_grmr_t *g, char *name, char *tok,
     n_type_t ntype)
 {
+	/*
+	 * Grammar nodes that are private to libparse can only begin with '_'.
+	 */
+	if (name[0] == '_') {
+		return (-1);
+	}
 	lp_grmr_node_t *grmr_node = lp_mk_grmr_node();
 	if (g->grmr_gnodes == NULL) {
 		g->grmr_gnodes = slablist_create("grmr_nodes", gn_cmp,
@@ -576,28 +582,12 @@ lp_create_grmr_node(lp_grmr_t *g, char *name, char *tok,
 lp_grmr_node_t *
 find_grmr_node(lp_grmr_t *g, char *name)
 {
-	lp_grmr_node_t ir;
-	ir.gn_name = name;
+	lp_grmr_node_t gn;
+	gn.gn_name = name;
 	selem_t find;
-	find.sle_p = &ir;
+	find.sle_p = &gn;
 	selem_t ret;
 	int f = slablist_find(g->grmr_gnodes, find, &ret);
-	if (f != SL_SUCCESS) {
-		return (NULL);
-	} else {
-		return (ret.sle_p);
-	}
-}
-
-lp_grmr_node_t *
-find_grouper(lp_grmr_t *g, char *nm)
-{
-	lp_grmr_node_t ir;
-	ir.gn_name = nm;
-	selem_t find;
-	find.sle_p = &ir;
-	selem_t ret;
-	int f = slablist_find(g->grmr_groupers, find, &ret);
 	if (f != SL_SUCCESS) {
 		return (NULL);
 	} else {
@@ -652,13 +642,37 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	if (c == NULL) {
 		return (-2);
 	}
+
 	/*
-	 * Directly nesting splitters results in more edges, and slower
-	 * execution time. Better to force the user to collapse or inline
-	 * directly nested splitters.
+	 * If we are trying to nest splitters, we insert a node between them as
+	 * padding. We do this in order to avoid having to change the semantics
+	 * of the on_pop return value. Currently, when we match a splitter, we
+	 * want to pop twice, so that we get to its (non-splitter) parent and
+	 * avoid descending down the splitter's next branch. To pop an
+	 * arbitrary number of times would require changes to the dfs routine
+	 * we are using.
 	 */
-	if (p->gn_type == SPLITTER && c->gn_type == SPLITTER) {
+	if (0 && p->gn_type == SPLITTER && c->gn_type == SPLITTER) {
 		return (-3);
+	}
+
+	/*
+	 * Parsers should be leaf nodes only.
+	 */
+	if (p->gn_type == PARSER) {
+		return (-4);
+	}
+
+	/*
+	 * A grammar node cannot refer to itself directly recursively. This
+	 * would only make sense on an input of infinite size. On a finite
+	 * input, the last iteration of the recursion would fail, resulting in
+	 * the whole node failing . A splitter must be between each iteration.
+	 * This way, that failure causes libparse to rewind to the point before
+	 * the last iteration failed and to take an alternative branch.
+	 */
+	if (p->gn_name == c->gn_name) {
+		return (-5);
 	}
 	gelem_t pg;
 	gelem_t cg;
@@ -750,8 +764,10 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 	lp_ast_node_t *an = last.sle_p;
 	if (an->an_left != NULL) {
 		an->an_off_start = an->an_left->an_off_end;
+		PARSE_AST_NODE_OFF_START(ast->ast_grmr, an);
 	} else if (an->an_parent != NULL) {
 		an->an_off_start = an->an_parent->an_off_start;
+		PARSE_AST_NODE_OFF_START(ast->ast_grmr, an);
 	}
 	uint64_t i = 0;
 	int total_matched = 0;
@@ -773,13 +789,24 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 			PARSE_MATCH(an);
 		}
 		i++;
+		if (PARSE_TEST_TOK_SEG_ENABLED()) {
+			int test = lp_test_tok_seg(seg);
+			PARSE_TEST_TOK(test);
+		}
 	}
 	an->an_off_end = an->an_off_start + (uint32_t)total_matched;
 	PARSE_AST_NODE_OFF_END(ast->ast_grmr, an);
+	if (0 && an->an_off_end == ast->ast_sz) {
+		ast->ast_eoi = 1;
+	}
 	if (an->an_state == ANS_MATCH) {
 		ast->ast_matched += total_matched;
 	} else {
 		ast->ast_matched = 0;
+	}
+	if (PARSE_TEST_AST_NODE_ENABLED()) {
+		int test = lp_test_ast_node(an);
+		PARSE_TEST_AST_NODE(test);
 	}
 	return (z);
 }
@@ -880,8 +907,13 @@ ast_pop_astn(lp_ast_t *ast)
 		}
 		slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
 	}
+	if (PARSE_TEST_AST_ENABLED()) {
+		int test = lp_test_ast(ast);
+		PARSE_TEST_AST(test);
+	}
 }
 
+void ast_rem_subtree(lp_ast_t *ast);
 /*
  * This function keeps popping ast nodes from the stack until it hits a
  * splitter.
@@ -897,6 +929,7 @@ ast_rewind(lp_ast_t *ast)
 	selem_t last = slablist_end(ast->ast_stack);
 	lp_ast_node_t *l = last.sle_p;
 	/* We are already at the top level slitter */
+	PARSE_GOT_HERE(ast->ast_nsplit);
 	if (ast->ast_nsplit == 1 && l->an_type == SPLITTER) {
 		return;
 	}
@@ -905,6 +938,7 @@ ast_rewind(lp_ast_t *ast)
 	do {
 		PARSE_AST_POP(l);
 		lp_ast_node_t *p = l->an_parent;
+		PARSE_GOT_HERE(p);
 		if (l->an_state == ANS_FAIL) {
 			if (p != NULL) {
 				lp_rem_ast_child(p, l);
@@ -913,20 +947,28 @@ ast_rewind(lp_ast_t *ast)
 					PARSE_FAIL(p);
 				} else if (p->an_type == SPLITTER) {
 					ast_rem_subtree(ast);
+					N_TMP = l->an_gnm;
+					if (l->an_type == SPLITTER) {
+						ast->ast_nsplit--;
+					}
+					lp_rm_ast_node(l);
 				}
 			}
-			N_TMP = l->an_gnm;
-			lp_rm_ast_node(l);
 		}
 		if (e > 0) {
 			slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
 		}
+
 
 		e = slablist_get_elems(ast->ast_stack);
 		last = slablist_end(ast->ast_stack);
 		l = last.sle_p;
 	} while (l->an_type != SPLITTER);
 	PARSE_REWIND_END();
+	if (PARSE_TEST_AST_ENABLED()) {
+		int test = lp_test_ast(ast);
+		PARSE_TEST_AST(test);
+	}
 }
 
 void
@@ -1009,6 +1051,10 @@ on_pop_handle_sequencer(lp_ast_t *ast, lp_ast_node_t *a_top)
 		a_top->an_off_end = a_top->an_last_child->an_off_end;
 		PARSE_AST_NODE_OFF_END(ast->ast_grmr, a_top);
 	}
+	if (PARSE_TEST_AST_ENABLED()) {
+		int test = lp_test_ast(ast);
+		PARSE_TEST_AST(test);
+	}
 }
 
 int on_pop(gelem_t gn, gelem_t state);
@@ -1060,10 +1106,7 @@ on_pop(gelem_t gn, gelem_t state)
 	/*
 	 * If we've finished the child of a splitter, we want to pop twice, so
 	 * that we end up at the splitter's parent. To do this, we set `ret` to
-	 * 1.
-	 *
-	 * Also we explicitly forbid the nesting of splitters, so we don't have
-	 * to loop up the parent chain, to fill in any offsets.
+	 * 1. If the parent is a splitter, we repeat this.
 	 */
 	lp_ast_node_t *p = a_top->an_parent;
 	if (a_top->an_state == ANS_MATCH && p != NULL &&
@@ -1097,7 +1140,17 @@ ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an)
 	if (an->an_type == SPLITTER) {
 		ast->ast_nsplit++;
 	}
+	/* This is the minimum possible value of off_end */
+	an->an_off_end = an->an_off_start;
 	slablist_add(ast->ast_stack, p, 0);
+	if (PARSE_TEST_AST_ENABLED()) {
+		int test = lp_test_ast(ast);
+		PARSE_TEST_AST(test);
+	}
+	if (PARSE_TEST_AST_NODE_ENABLED()) {
+		int test = lp_test_ast_node(an);
+		PARSE_TEST_AST_NODE(test);
+	}
 }
 
 int
@@ -1162,7 +1215,7 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	next.ge_p = c;
 	gelem_t weight;
 	if (PARSE_TEST_ADD_CHILD_ENABLED()) {
-		int e = parse_test_add_child(p, c);
+		int e = lp_test_add_child(p, c);
 		PARSE_TEST_ADD_CHILD(e);
 	}
 	/*
@@ -1174,6 +1227,9 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 		c->an_index = p->an_kids;
 		p->an_kids++;
 		c->an_left = p->an_last_child;
+		if (c->an_left != NULL) {
+			c->an_left->an_right = c;
+		}
 		c->an_parent = p;
 		p->an_last_child = c;
 	} else {
@@ -1190,6 +1246,12 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	PARSE_AST_ADD_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
 		lg_edges(p->an_ast->ast_graph, trace_ast);
+	}
+	if (PARSE_TEST_AST_NODE_ENABLED()) {
+		int test = lp_test_ast_node(p);
+		PARSE_TEST_AST_NODE(test);
+		test = lp_test_ast_node(c);
+		PARSE_TEST_AST_NODE(test);
 	}
 }
 
@@ -1274,6 +1336,12 @@ trace_ast(gelem_t from, gelem_t to, gelem_t weight)
 	lp_ast_node_t *c = to.ge_p;
 	uint64_t num = weight.ge_u;
 	PARSE_TRACE_AST(p->an_ast, p, c, num);
+	if (PARSE_TEST_AST_NODE_ENABLED()) {
+		int test = lp_test_ast_node(p);
+		PARSE_TEST_AST_NODE(test);
+		test = lp_test_ast_node(c);
+		PARSE_TEST_AST_NODE(test);
+	}
 }
 
 /*
@@ -1384,6 +1452,22 @@ lp_clone_grammar(char *nm, lp_grmr_t *g)
 {
 	(void)nm;
 	return (g);
+}
+
+void
+print_grmr_edge(gelem_t from, gelem_t to, gelem_t weight)
+{
+	lp_grmr_node_t *f = from.ge_p;
+	lp_grmr_node_t *t = to.ge_p;
+	uint64_t w = weight.ge_u;
+
+	printf("EDGE: %s -> %s [%u]\n", f->gn_name, t->gn_name, w);
+}
+
+void
+lp_dump_grmr(lp_grmr_t *g)
+{
+	lg_edges(g->grmr_graph, print_grmr_edge);
 }
 
 

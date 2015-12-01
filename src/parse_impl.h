@@ -63,7 +63,6 @@ struct lp_ast_node {
 	lp_ast_t	*an_ast;
 	uint32_t	an_kids;
 	uint32_t	an_index;
-	lp_ast_node_t	*an_meta;
 	lp_ast_node_t	*an_parent;
 	lp_ast_node_t	*an_last_child;
 	lp_ast_node_t	*an_left;
@@ -73,37 +72,6 @@ struct lp_ast_node {
 	uint32_t	an_off_start;
 	uint32_t	an_off_end;
 };
-
-/*
- * We divide the 64-bit gelem into 2 32-bit integers. The first integer
- * represents the _level_ and the second represents the _index_. The root-node
- * is at level 0, while its children are at level 1, its grand-children at
- * level 2 and so forth.
- *
- * The index given to a child serves to force `libgraph` into storing the nodes
- * in a specific order. Formally, graphs are simply collections of connections,
- * and there is no inherent ordering between those connections. However, the
- * correctness of this library, depends on the order of the children being
- * deterministic. After extensive debate, it's been decided that child-ordering
- * doesn't belong in the `libgraph` code, especially since libgraph's existing
- * behavior can be easily manipulated --- as was done here --- to achieve the
- * same result.
- *
- * Therefor, the node-id is actually a composite of the level that the node
- * occupies and the node's ordinal position in the sequence of children.
- *
- * This implies that any grammar can have 2^32 levels and that each level can
- * have 2^32 children. Suffice it to say, you'll never have a grammar big
- * enough to hit anything close to these limits. #FamousLastWords
- *
- * XXX we will need an incremented variable that tells what the current index
- * is the current level. Because the index of the first child of a parent isn't
- * 0 if that is not the first parent in that level.
- */
-typedef struct node_id {
-	uint32_t	ni_count;
-	uint32_t	ni_index;
-} node_id_t;
 
 typedef struct lp_grmr_node {
 	n_type_t	gn_type;
@@ -123,7 +91,6 @@ struct lp_grmr {
 	char		grmr_fin;	/* bool */
 	lp_tok_ls_t	*grmr_toks;
 	slablist_t	*grmr_gnodes;/* srt ls of all grmr_node-ptrs */
-	slablist_t	*grmr_groupers;/* srt ls of all grouper-ptrs */
 	lg_graph_t	*grmr_graph;
 	lp_grmr_node_t	*grmr_root;
 };
@@ -160,6 +127,7 @@ struct lp_ast {
 	void		*ast_in;
 	size_t		ast_sz;
 	int		ast_matched;
+	int		ast_eoi; /* end of input */
 	uint32_t	ast_nsplit; /* splitters pushed to stack */
 	slablist_t	*ast_stack;
 	lg_graph_t	*ast_to_remove;

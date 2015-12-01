@@ -90,11 +90,12 @@ ress.
 	 * The test probes.
 	 */
 	probe test_add_child(int e);
-	probe test_token(int e);
-	probe test_grmr_node(int e);
 	probe test_ast_node(int e);
-	probe test_dfs_cookie(int e);
-	probe test_match(int e);
+	probe test_grmr_node(int e);
+	probe test_grmr(int e);
+	probe test_ast(int e);
+	probe test_tok(int e);
+	probe test_tok_seg(int e);
 };
 
 #pragma D attributes Evolving/Evolving/ISA      provider parse provider
