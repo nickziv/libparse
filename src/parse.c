@@ -644,19 +644,6 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	}
 
 	/*
-	 * If we are trying to nest splitters, we insert a node between them as
-	 * padding. We do this in order to avoid having to change the semantics
-	 * of the on_pop return value. Currently, when we match a splitter, we
-	 * want to pop twice, so that we get to its (non-splitter) parent and
-	 * avoid descending down the splitter's next branch. To pop an
-	 * arbitrary number of times would require changes to the dfs routine
-	 * we are using.
-	 */
-	if (0 && p->gn_type == SPLITTER && c->gn_type == SPLITTER) {
-		return (-3);
-	}
-
-	/*
 	 * Parsers should be leaf nodes only.
 	 */
 	if (p->gn_type == PARSER) {
