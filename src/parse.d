@@ -30,6 +30,10 @@ inline int E_TSEG_WIDTH_ZERO = 30;
 inline int E_TSEG_DATA = 31;
 inline int E_AST_NSPLIT_TOO_BIG = 32;
 inline int E_AST_NSPLIT_TOO_SMALL = 33;
+inline int E_ASTN_SPLIT_NKIDS = 34;
+inline int E_ASTN_INDEX_DIFF2BIG = 35;
+inline int E_ASTN_INDEX_DIFF2SMALL = 36;
+inline int E_AST_GRAPH_WEIGHTS = 37;
 
 inline string tok_op[int op] =
 	op == 0 ? "ROP_ZERO_ONE" :
@@ -77,6 +81,10 @@ inline string e_test_descr[int err] =
 	err == E_TSEG_DATA ? "[ TSEG DATA NULL ]" :
 	err == E_AST_NSPLIT_TOO_BIG ? "[ NSPLIT TOO BIG ]" :
 	err == E_AST_NSPLIT_TOO_SMALL ? "[ NSPLIT TOO SMALL ]" :
+	err == E_ASTN_SPLIT_NKIDS ? "[ SPLITTER NKIDS TOO BIG ]" :
+	err == E_ASTN_INDEX_DIFF2BIG ? "[ INDEX DIFF TOO BIG ]" :
+	err == E_ASTN_INDEX_DIFF2SMALL ? "[ INDEX DIFF TOO SMALL ]" :
+	err == E_AST_GRAPH_WEIGHTS ? "[ GRAPH WEIGHTS NOT MONOTOMIC ]" :
 	"[[BAD ERROR CODE]]";
 
 typedef enum regex_op {
@@ -207,6 +215,12 @@ translator an_info_t < lp_ast_node_t *a >
 
 	ani_state = *(uint32_t *)copyin((uintptr_t)&a->an_state,
 			sizeof (a->an_state));
+
+	ani_index = *(uint32_t *)copyin((uintptr_t)&a->an_index,
+			sizeof (a->an_index));
+
+	ani_kids = *(uint32_t *)copyin((uintptr_t)&a->an_kids,
+			sizeof (a->an_kids));
 
 	ani_off_start = *(uint32_t *)copyin((uintptr_t)&a->an_off_start,
 			sizeof (a->an_off_start));

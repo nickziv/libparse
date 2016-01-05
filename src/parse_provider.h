@@ -256,6 +256,33 @@ extern "C" {
 #define	PARSE_PARSE_ENABLED() \
 	__dtraceenabled_parse___parse(0)
 #endif
+#define	PARSE_REM_SUBTREE_BEGIN() \
+	__dtrace_parse___rem_subtree_begin()
+#ifndef	__sparc
+#define	PARSE_REM_SUBTREE_BEGIN_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_begin()
+#else
+#define	PARSE_REM_SUBTREE_BEGIN_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_begin(0)
+#endif
+#define	PARSE_REM_SUBTREE_END() \
+	__dtrace_parse___rem_subtree_end()
+#ifndef	__sparc
+#define	PARSE_REM_SUBTREE_END_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_end()
+#else
+#define	PARSE_REM_SUBTREE_END_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_end(0)
+#endif
+#define	PARSE_REM_SUBTREE_ROOT(arg0) \
+	__dtrace_parse___rem_subtree_root(arg0)
+#ifndef	__sparc
+#define	PARSE_REM_SUBTREE_ROOT_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_root()
+#else
+#define	PARSE_REM_SUBTREE_ROOT_ENABLED() \
+	__dtraceenabled_parse___rem_subtree_root(0)
+#endif
 #define	PARSE_REPEAT(arg0) \
 	__dtrace_parse___repeat(arg0)
 #ifndef	__sparc
@@ -292,8 +319,8 @@ extern "C" {
 #define	PARSE_REWIND_BEGIN_ENABLED() \
 	__dtraceenabled_parse___rewind_begin(0)
 #endif
-#define	PARSE_REWIND_END() \
-	__dtrace_parse___rewind_end()
+#define	PARSE_REWIND_END(arg0) \
+	__dtrace_parse___rewind_end(arg0)
 #ifndef	__sparc
 #define	PARSE_REWIND_END_ENABLED() \
 	__dtraceenabled_parse___rewind_end()
@@ -417,6 +444,24 @@ extern "C" {
 #else
 #define	PARSE_TRACE_AST_ENABLED() \
 	__dtraceenabled_parse___trace_ast(0)
+#endif
+#define	PARSE_TRACE_AST_BEGIN() \
+	__dtrace_parse___trace_ast_begin()
+#ifndef	__sparc
+#define	PARSE_TRACE_AST_BEGIN_ENABLED() \
+	__dtraceenabled_parse___trace_ast_begin()
+#else
+#define	PARSE_TRACE_AST_BEGIN_ENABLED() \
+	__dtraceenabled_parse___trace_ast_begin(0)
+#endif
+#define	PARSE_TRACE_AST_END() \
+	__dtrace_parse___trace_ast_end()
+#ifndef	__sparc
+#define	PARSE_TRACE_AST_END_ENABLED() \
+	__dtraceenabled_parse___trace_ast_end()
+#else
+#define	PARSE_TRACE_AST_END_ENABLED() \
+	__dtraceenabled_parse___trace_ast_end(0)
 #endif
 #define	PARSE_UNMATCHED_BITS(arg0, arg1, arg2, arg3, arg4) \
 	__dtrace_parse___unmatched_bits(arg0, arg1, arg2, arg3, arg4)
@@ -591,6 +636,24 @@ extern int __dtraceenabled_parse___parse(void);
 #else
 extern int __dtraceenabled_parse___parse(long);
 #endif
+extern void __dtrace_parse___rem_subtree_begin(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___rem_subtree_begin(void);
+#else
+extern int __dtraceenabled_parse___rem_subtree_begin(long);
+#endif
+extern void __dtrace_parse___rem_subtree_end(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___rem_subtree_end(void);
+#else
+extern int __dtraceenabled_parse___rem_subtree_end(long);
+#endif
+extern void __dtrace_parse___rem_subtree_root(lp_ast_node_t *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___rem_subtree_root(void);
+#else
+extern int __dtraceenabled_parse___rem_subtree_root(long);
+#endif
 extern void __dtrace_parse___repeat(lp_ast_node_t *);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___repeat(void);
@@ -615,7 +678,7 @@ extern int __dtraceenabled_parse___rewind_begin(void);
 #else
 extern int __dtraceenabled_parse___rewind_begin(long);
 #endif
-extern void __dtrace_parse___rewind_end(void);
+extern void __dtrace_parse___rewind_end(int);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___rewind_end(void);
 #else
@@ -699,6 +762,18 @@ extern int __dtraceenabled_parse___trace_ast(void);
 #else
 extern int __dtraceenabled_parse___trace_ast(long);
 #endif
+extern void __dtrace_parse___trace_ast_begin(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___trace_ast_begin(void);
+#else
+extern int __dtraceenabled_parse___trace_ast_begin(long);
+#endif
+extern void __dtrace_parse___trace_ast_end(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___trace_ast_end(void);
+#else
+extern int __dtraceenabled_parse___trace_ast_end(long);
+#endif
 extern void __dtrace_parse___unmatched_bits(int, void *, lp_grmr_node_t *, uint64_t, uint64_t);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___unmatched_bits(void);
@@ -762,6 +837,12 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_NESTING_ENABLED() (0)
 #define	PARSE_PARSE()
 #define	PARSE_PARSE_ENABLED() (0)
+#define	PARSE_REM_SUBTREE_BEGIN()
+#define	PARSE_REM_SUBTREE_BEGIN_ENABLED() (0)
+#define	PARSE_REM_SUBTREE_END()
+#define	PARSE_REM_SUBTREE_END_ENABLED() (0)
+#define	PARSE_REM_SUBTREE_ROOT(arg0)
+#define	PARSE_REM_SUBTREE_ROOT_ENABLED() (0)
 #define	PARSE_REPEAT(arg0)
 #define	PARSE_REPEAT_ENABLED() (0)
 #define	PARSE_REPEAT_RETRY(arg0)
@@ -770,7 +851,7 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_RESET_GRMR_NODE_ENABLED() (0)
 #define	PARSE_REWIND_BEGIN()
 #define	PARSE_REWIND_BEGIN_ENABLED() (0)
-#define	PARSE_REWIND_END()
+#define	PARSE_REWIND_END(arg0)
 #define	PARSE_REWIND_END_ENABLED() (0)
 #define	PARSE_RUN_GRMR_BEGIN(arg0, arg1)
 #define	PARSE_RUN_GRMR_BEGIN_ENABLED() (0)
@@ -798,6 +879,10 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_TEST_TOK_SEG_ENABLED() (0)
 #define	PARSE_TRACE_AST(arg0, arg1, arg2, arg3)
 #define	PARSE_TRACE_AST_ENABLED() (0)
+#define	PARSE_TRACE_AST_BEGIN()
+#define	PARSE_TRACE_AST_BEGIN_ENABLED() (0)
+#define	PARSE_TRACE_AST_END()
+#define	PARSE_TRACE_AST_END_ENABLED() (0)
 #define	PARSE_UNMATCHED_BITS(arg0, arg1, arg2, arg3, arg4)
 #define	PARSE_UNMATCHED_BITS_ENABLED() (0)
 

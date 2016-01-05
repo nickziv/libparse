@@ -257,8 +257,6 @@ has_anyof_one_plus(tok_seg_t *s, char *in, size_t bit_off)
 	return (bits);
 }
 
-//lp_grmr_node_t *find_grmr_node(lp_grmr_t *g, char *name);
-
 /*
  * Returns how many bits we consumed (not how many bytes).
  */
@@ -774,6 +772,10 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 		} else {
 			an->an_state = ANS_MATCH;
 			PARSE_MATCH(an);
+			if (an->an_parent->an_type == SPLITTER) {
+				an->an_parent->an_state = ANS_MATCH;
+				PARSE_MATCH(an->an_parent);
+			}
 		}
 		i++;
 		if (PARSE_TEST_TOK_SEG_ENABLED()) {
@@ -822,6 +824,12 @@ void trace_ast(gelem_t a, gelem_t b, gelem_t c);
 void
 lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 {
+	if (PARSE_TEST_AST_NODE_ENABLED()) {
+		int test = lp_test_ast_node(p);
+		PARSE_TEST_AST_NODE(test);
+		test = lp_test_ast_node(c);
+		PARSE_TEST_AST_NODE(test);
+	}
 	lg_graph_t *ast_graph = p->an_ast->ast_graph;
 	lp_grmr_t *grmr = p->an_ast->ast_grmr;
 	gelem_t gp;
@@ -835,6 +843,7 @@ lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	 * the ast graph.
 	 */
 	lg_wdisconnect(ast_graph, gp, gc, weight);
+
 	/*
 	 * We update the linked list of neighbors embedded in the child nodes,
 	 * as well as the pointer to the parent's rightmost child.
@@ -853,10 +862,39 @@ lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 		}
 	}
 	p->an_kids--;
+	c->an_parent = NULL;
 	PARSE_AST_REM_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
+		PARSE_TRACE_AST_BEGIN();
 		lg_edges(p->an_ast->ast_graph, trace_ast);
+		PARSE_TRACE_AST_END();
 	}
+}
+
+/*
+ * This function disconnects two nodes, but doesn't bother updating metadata.
+ * Intended to be used when removing subtrees.
+ */
+void
+lp_rem_ast_child_lite(lp_ast_node_t *p, lp_ast_node_t *c)
+{
+	/*
+	 * Note that we get the ast graph from the child node, and not the
+	 * parent node. When removing a subtree, a parent node can be NULL, but
+	 * the child node is always non-NULL.
+	 */
+	lg_graph_t *ast_graph = c->an_ast->ast_graph;
+	gelem_t gp;
+	gelem_t gc;
+	gelem_t weight;
+	gp.ge_p = p;
+	gc.ge_p = c;
+	weight.ge_u = c->an_index;
+	/*
+	 * We remove the parent-child relationship between these two nodes in
+	 * the ast graph.
+	 */
+	lg_wdisconnect(ast_graph, gp, gc, weight);
 }
 
 
@@ -888,6 +926,15 @@ ast_pop_astn(lp_ast_t *ast)
 		}
 		lp_rm_ast_node(l);
 	}
+	if (l->an_state == ANS_MATCH) {
+		/*
+		 * We percolate the ending offset to the parent.
+		 */
+		if (p != NULL) {
+			p->an_off_end = l->an_off_end;
+			PARSE_AST_NODE_OFF_END(ast->ast_grmr, p);
+		}
+	}
 	if (e > 0) {
 		if (l->an_type == SPLITTER) {
 			ast->ast_nsplit--;
@@ -903,59 +950,66 @@ ast_pop_astn(lp_ast_t *ast)
 void ast_rem_subtree(lp_ast_t *ast);
 /*
  * This function keeps popping ast nodes from the stack until it hits a
- * splitter.
+ * splitter. It returns 0 if it has something to rewind to, and 1 if not.
  */
-void
+int
 ast_rewind(lp_ast_t *ast)
 {
 	PARSE_REWIND_BEGIN();
 	if (!(ast->ast_nsplit)) {
-		return;
+		PARSE_REWIND_END(1);
+		return (1);
 	}
 	uint64_t e = slablist_get_elems(ast->ast_stack);
 	selem_t last = slablist_end(ast->ast_stack);
 	lp_ast_node_t *l = last.sle_p;
 	/* We are already at the top level slitter */
-	PARSE_GOT_HERE(ast->ast_nsplit);
 	if (ast->ast_nsplit == 1 && l->an_type == SPLITTER) {
-		return;
+		PARSE_REWIND_END(0);
+		return (0);
 	}
 
-	char *N_TMP = NULL;
-	do {
-		PARSE_AST_POP(l);
+	while (1) {
 		lp_ast_node_t *p = l->an_parent;
-		PARSE_GOT_HERE(p);
-		if (l->an_state == ANS_FAIL) {
-			if (p != NULL) {
-				lp_rem_ast_child(p, l);
-				if (p->an_type == SEQUENCER) {
-					p->an_state = ANS_FAIL;
-					PARSE_FAIL(p);
-				} else if (p->an_type == SPLITTER) {
-					ast_rem_subtree(ast);
-					N_TMP = l->an_gnm;
-					if (l->an_type == SPLITTER) {
-						ast->ast_nsplit--;
-					}
-					lp_rm_ast_node(l);
-				}
+		if (e > 0) {
+			PARSE_AST_POP(l);
+			slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
+			if (l->an_type == SPLITTER) {
+				ast->ast_nsplit--;
 			}
 		}
-		if (e > 0) {
-			slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
-		}
 
+		if (p != NULL) {
+			if (p->an_type == SEQUENCER) {
+				p->an_state = ANS_FAIL;
+				PARSE_FAIL(p);
+			} else if (p->an_type == SPLITTER) {
+				ast_rem_subtree(ast);
+			}
+		}
 
 		e = slablist_get_elems(ast->ast_stack);
 		last = slablist_end(ast->ast_stack);
 		l = last.sle_p;
-	} while (l->an_type != SPLITTER);
-	PARSE_REWIND_END();
+		if (l->an_type == SPLITTER) {
+			break;
+		}
+	}
+	PARSE_REWIND_END(0);
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
 		PARSE_TEST_AST(test);
 	}
+	return (0);
+}
+
+void
+handle_rewind_failure(lp_ast_t *ast, int failed)
+{
+	if (failed) {
+		ast->ast_bail = 1;
+	}
+	return;
 }
 
 void
@@ -982,6 +1036,7 @@ lp_queue_removal(lp_ast_node_t *p, lp_ast_node_t *c)
 void
 queue_subtree_edge(gelem_t to, gelem_t from, gelem_t ignored)
 {
+	(void)ignored;
 	lp_ast_node_t *parent = from.ge_p;
 	lp_ast_node_t *child = to.ge_p;
 	lp_queue_removal(parent, child);
@@ -990,9 +1045,11 @@ queue_subtree_edge(gelem_t to, gelem_t from, gelem_t ignored)
 void
 rem_subtree_edge(gelem_t from, gelem_t to, gelem_t weight)
 {
+	(void)weight;
 	lp_ast_node_t *parent = from.ge_p;
 	lp_ast_node_t *child = to.ge_p;
-	lp_rem_ast_child(parent, child);
+	lp_rem_ast_child_lite(parent, child);
+	lp_rm_ast_node(child);
 }
 
 /*
@@ -1002,9 +1059,11 @@ rem_subtree_edge(gelem_t from, gelem_t to, gelem_t weight)
 void
 ast_rem_subtree(lp_ast_t *ast)
 {
+	PARSE_REM_SUBTREE_BEGIN();
 	ast->ast_to_remove = lg_create_wdigraph();
 	selem_t last = slablist_end(ast->ast_stack);
 	lp_ast_node_t *n = last.sle_p;
+	PARSE_REM_SUBTREE_ROOT(n);
 	gelem_t gn;
 	gelem_t ignored;
 	gn.ge_p = n;
@@ -1016,6 +1075,7 @@ ast_rem_subtree(lp_ast_t *ast)
 	lg_edges(ast->ast_to_remove, rem_subtree_edge);
 	lg_destroy_graph(ast->ast_to_remove);
 	ast->ast_to_remove = NULL;
+	PARSE_REM_SUBTREE_END();
 }
 
 /*
@@ -1038,6 +1098,11 @@ on_pop_handle_sequencer(lp_ast_t *ast, lp_ast_node_t *a_top)
 		a_top->an_off_end = a_top->an_last_child->an_off_end;
 		PARSE_AST_NODE_OFF_END(ast->ast_grmr, a_top);
 	}
+	if (a_top->an_parent != NULL &&
+	    a_top->an_parent->an_type == SPLITTER) {
+		a_top->an_parent->an_state = ANS_MATCH;
+		PARSE_MATCH(a_top->an_parent);
+	}
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
 		PARSE_TEST_AST(test);
@@ -1057,59 +1122,118 @@ on_pop(gelem_t gn, gelem_t state)
 	selem_t ast_elem = slablist_end(ast->ast_stack);
 	lp_ast_node_t *a_top = ast_elem.sle_p;
 	int ret = 0;
+	/*
+	 * We want to update the AST and the stack. Updates to the AST involve
+	 * changing the values of the ast_node_t's members. And updates to the
+	 * stack involve changes to the `ast_stack` member of the AST. How we
+	 * modify the AST depends on what kind of AST node we have popped.
+	 * Remember, libgraph calls the pop-callback (i.e. this function), once
+	 * it has popped the grammar node from its internal DFS stack. We
+	 * maintain our own AST node stack, which needs to mirror libgraph's
+	 * stack -- the stacks must be of the same depth, and the i'th  element
+	 * in the AST node stack must have the same `n_type_t` value. The stack
+	 * updates we make merely guarantee that this congruence holds.
+	 *
+	 * The AST updates happen, ultimately, as a result of the success and
+	 * failure of the PARSE nodes. If we successfully consume an input we
+	 * keep building up the tree. If we fail to consume the next part of
+	 * the input, we delete the subtree of the most recent SPLITTER node,
+	 * and try its next child. If all of its kids fail, we repeat this
+	 * rewinding process, until we exhaust all SPLITTERs.
+	 *
+	 * As far as this function is concerned, it receives a node that's one
+	 * of three types: PARSER, SPLITTER, SEQUENCER. This node can have a
+	 * parent that's one of _two_ types: SPLITTER, SEQUENCER. If we are
+	 * popping a PARSER node, we try to use it to consume some amount of
+	 * input. If we failed, we rewind (if possible) and percolate the
+	 * failure to the parent node. If we succeeded we percolate the success
+	 * to the parent node and let the DFS carry the execution of the
+	 * grammar forward. We direct the execution using return values. A
+	 * return value of 0 tells the DFS to proceed as normal. A return value
+	 * of 1 tells the DFS to skip the visit to the next child of the
+	 * parent, and instead to pop again. A return value of 2 tells the DFS
+	 * that we are rewind our stack to the nearest SPLITTER and that it
+	 * should so so as well. If we fail, we return 2. If we succeed, what
+	 * we return depends on the parent. If the parent is a SEQUENCER, we
+	 * return 0. If it is a SPLITTER we return 1.
+	 *
+	 * If we are popping a SEQUENCER node. We know it was successful (if it
+	 * had any failed PARSER descendents or SPLITTER descendents, it would
+	 * have been nuked in a rewind).  We only need to give care to the
+	 * return values. We either return 0 or 1. Only PARSER and SPLITTER
+	 * nodes can return 2.  We return 1 if the parent is a SPLITTER, and 0
+	 * if not.
+	 *
+	 * If we are popping a SPLITTER node, and it has failed, we return a 2
+	 * and rewind (if possible). If the SPLITTER has succeeded, we either
+	 * return a 0 or a 1. If 0, the parent is not a SPLITTER and 1 if it is
+	 * a SPLITTER.
+	 */
 
+	int rewind_failed = 0;
 	switch (a_top->an_type) {
-
-	case SPLITTER:
-		if (a_top->an_state == ANS_MATCH) {
-			ast_pop_astn(ast);
-			return (0);
-		} else {
-			a_top->an_state = ANS_FAIL;
-			PARSE_FAIL(a_top);
-			/*
-			 * We know that we have failed at this splitter, since
-			 * we are popping it and it isn't in the matched state
-			 * (a pop implies that we've exhaused all of its
-			 * branches). So we will try to rewind to the preceding
-			 * splitter.
-			 */
-			ast_rewind(ast);
-			return (2);
-		}
-		break;
 
 	case PARSER:
 		try_parse(node, ast);
+		if (a_top->an_state == ANS_FAIL) {
+			ret = 2;
+			rewind_failed = ast_rewind(ast);
+			handle_rewind_failure(ast, rewind_failed);
+			return (ret);
+		}
+		if (a_top->an_parent->an_type == SPLITTER) {
+			ret = 1;
+			ast_pop_astn(ast);
+			return (ret);
+		} else if (a_top->an_parent->an_type == SEQUENCER) {
+			ret = 0;
+			ast_pop_astn(ast);
+			return (ret);
+		}
 		break;
 
 	case SEQUENCER:
 		if (a_top->an_state == ANS_TRY) {
 			on_pop_handle_sequencer(ast, a_top);
 		}
+		if (a_top->an_state == ANS_MATCH &&
+		    a_top->an_parent != NULL &&
+		    a_top->an_parent->an_type == SPLITTER) {
+			a_top->an_parent->an_state = ANS_MATCH;
+			PARSE_MATCH(a_top->an_parent);
+			ret = 1;
+			ast_pop_astn(ast);
+			return (ret);
+		}
+		ret = 0;
+		ast_pop_astn(ast);
+		return (ret);
+		break;
+
+	case SPLITTER:
+		if (a_top->an_state != ANS_MATCH) {
+			ret = 2;
+			rewind_failed = ast_rewind(ast);
+			handle_rewind_failure(ast, rewind_failed);
+			return (ret);
+		} else {
+			if (a_top->an_parent != NULL) {
+				a_top->an_parent->an_state = ANS_MATCH;
+				PARSE_MATCH(a_top->an_parent);
+				if (a_top->an_parent->an_type == SPLITTER) {
+					ret = 1;
+					ast_pop_astn(ast);
+					return (ret);
+				} else {
+					ret = 0;
+					ast_pop_astn(ast);
+					return (ret);
+				}
+			}
+		}
 		break;
 	}
 
-	/*
-	 * If we've finished the child of a splitter, we want to pop twice, so
-	 * that we end up at the splitter's parent. To do this, we set `ret` to
-	 * 1. If the parent is a splitter, we repeat this.
-	 */
-	lp_ast_node_t *p = a_top->an_parent;
-	if (a_top->an_state == ANS_MATCH && p != NULL &&
-	    p->an_type == SPLITTER) {
-		p->an_off_end = a_top->an_off_end;
-		p->an_state = ANS_MATCH;
-		PARSE_AST_NODE_OFF_END(ast->ast_grmr, p);
-		PARSE_MATCH(p);
-		ret = 1;
-	} else if (a_top->an_state == ANS_FAIL && a_top->an_type == PARSER) {
-		ret = 2;
-		ast_rewind(ast);
-		return (ret);
-	}
-
-	ast_pop_astn(ast);
 	return (ret);
 }
 
@@ -1232,7 +1356,9 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	lg_wconnect(ast_graph, glast, next, weight);
 	PARSE_AST_ADD_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
+		PARSE_TRACE_AST_BEGIN();
 		lg_edges(p->an_ast->ast_graph, trace_ast);
+		PARSE_TRACE_AST_END();
 	}
 	if (PARSE_TEST_AST_NODE_ENABLED()) {
 		int test = lp_test_ast_node(p);
@@ -1248,6 +1374,7 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 void
 lp_set_ast_offsets(lp_ast_t *ast, lp_ast_node_t *n)
 {
+	(void)ast;
 	lp_ast_node_t *p = n->an_parent;
 	if (p != NULL && (p->an_type == SPLITTER ||
 	    n->an_left == NULL)) {
@@ -1296,6 +1423,9 @@ on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 {
 	(void)ignored;
 	lp_ast_t *ast = state.ge_p;
+	if (ast->ast_bail) {
+		return (1);
+	}
 	lp_grmr_node_t *node = gn.ge_p;
 	lp_ast_node_t *an = NULL;
 	lp_ast_node_t *last_astn = NULL;
@@ -1358,9 +1488,6 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	lg_dfs_br_rdnt_fold(g->grmr_graph, root, on_split, on_pop, on_push,
 	    state);
 	PARSE_RUN_GRMR_END(g, ast);
-	//printf("digraph ast {\n");
-	//lg_edges(ast->ast_graph, print_ast);
-	//printf("}\n");
 	/*
 	 * This is here as a filler. What _should_ we return, anyway?
 	 */
@@ -1372,6 +1499,8 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 int
 node_print(gelem_t agg, gelem_t gn, gelem_t *aggp)
 {
+	(void)aggp;
+	(void)agg;
 	lp_grmr_node_t *node = gn.ge_p;
 	printf("VISITED: %s\n", node->gn_name);
 	return (0);
@@ -1380,6 +1509,7 @@ node_print(gelem_t agg, gelem_t gn, gelem_t *aggp)
 void
 relation(gelem_t c, gelem_t p, gelem_t opt)
 {
+	(void)opt;
 	lp_grmr_node_t *pnode = p.ge_p;
 	lp_grmr_node_t *cnode = c.ge_p;
 	printf("CROSSING: %s -> %s\n", pnode->gn_name, cnode->gn_name);
@@ -1405,6 +1535,10 @@ lp_bfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 int
 lp_dfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 {
+	(void)g;
+	(void)ast;
+	(void)in;
+	(void)sz;
 	return (0);
 
 }
@@ -1448,7 +1582,7 @@ print_grmr_edge(gelem_t from, gelem_t to, gelem_t weight)
 	lp_grmr_node_t *t = to.ge_p;
 	uint64_t w = weight.ge_u;
 
-	printf("EDGE: %s -> %s [%u]\n", f->gn_name, t->gn_name, w);
+	printf("EDGE: %s -> %s [%lu]\n", f->gn_name, t->gn_name, w);
 }
 
 void

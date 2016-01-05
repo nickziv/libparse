@@ -28,7 +28,10 @@ ress.
 	probe grmr_add_child(lp_grmr_t *g, char *p, char *c, uint64_t u);
 	probe ast_push(lp_ast_node_t *n) : (an_info_t *n);
 	probe rewind_begin();
-	probe rewind_end();
+	probe rewind_end(int);
+	probe rem_subtree_begin();
+	probe rem_subtree_root(lp_ast_node_t *r) : (an_info_t *r);
+	probe rem_subtree_end();
 	probe ast_pop(lp_ast_node_t *n) : (an_info_t *n);
 	probe ast_add_child(lp_grmr_t *g, lp_ast_node_t *p, lp_ast_node_t *c) :
 		(grmrinfo_t *g, an_info_t *p, an_info_t *c);
@@ -42,6 +45,8 @@ ress.
 	probe trace_ast(lp_ast_t *a, lp_ast_node_t *f, lp_ast_node_t *t,
 		uint64_t e) : (astinfo_t *a, an_info_t *f, an_info_t *t,
 		uint64_t e);
+	probe trace_ast_begin();
+	probe trace_ast_end();
 	probe create_ast(lp_ast_t *a) : (astinfo_t *a);
 	probe nesting(lp_ast_t *a) : (astinfo_t *a);
 	probe bind_begin();

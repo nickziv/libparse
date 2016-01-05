@@ -128,6 +128,7 @@ struct lp_ast {
 	size_t		ast_sz;
 	int		ast_matched;
 	int		ast_eoi; /* end of input */
+	int		ast_bail; /* tell DFS to bail */
 	uint32_t	ast_nsplit; /* splitters pushed to stack */
 	slablist_t	*ast_stack;
 	lg_graph_t	*ast_to_remove;

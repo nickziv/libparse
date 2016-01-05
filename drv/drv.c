@@ -125,6 +125,8 @@ gr_calc_paren()
 	lp_add_tok_op(tws, ROP_ANYOF_ONE_PLUS, 8, 3, ws);
 	lp_tok_t *toptws = lp_create_tok(g, "optws");
 	lp_add_tok_op(toptws, ROP_ANYOF_ZERO_ONE_PLUS, 8, 3, ws);
+	lp_tok_t *tsemi = lp_create_tok(g, "semi");
+	lp_add_tok_op(tsemi, ROP_ONE, 8, 1, cend);
 	lp_tok_t *tnum = lp_create_tok(g, "num");
 	lp_add_tok_op(tnum, ROP_ANYOF_ONE_PLUS, 8, 10, num);
 	lp_tok_t *top1 = lp_create_tok(g, "op1");
@@ -135,50 +137,53 @@ gr_calc_paren()
 	lp_add_tok_op(topar, ROP_ONE, 8, 1, opar);
 	lp_tok_t *tcpar = lp_create_tok(g, "cpar");
 	lp_add_tok_op(tcpar, ROP_ONE, 8, 1, cpar);
-	int r = lp_create_grmr_node(g, "expr", NULL, SPLITTER);
+
+	int r = lp_create_grmr_node(g, "expr", NULL, SEQUENCER);
 	lp_root_grmr_node(g, "expr");
-	r = lp_create_grmr_node(g, "expr_frag", NULL, SEQUENCER);
-	r = lp_create_grmr_node(g, "expr_num", NULL, SEQUENCER);
-	r = lp_create_grmr_node(g, "expr_paren", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "semi", "semi", PARSER);
+	r = lp_create_grmr_node(g, "elem", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "list", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "base_expr", NULL, SEQUENCER);
+	r = lp_create_grmr_node(g, "base_expr_loop", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "optws", "optws", PARSER);
 	r = lp_create_grmr_node(g, "op", NULL, SPLITTER);
 	r = lp_create_grmr_node(g, "op1", "op1", PARSER);
 	r = lp_create_grmr_node(g, "op2", "op2", PARSER);
 	r = lp_create_grmr_node(g, "optws", "optws", PARSER);
 	r = lp_create_grmr_node(g, "num", "num", PARSER);
+	r = lp_create_grmr_node(g, "number", NULL, SEQUENCER);
 	r = lp_create_grmr_node(g, "opar", "opar", PARSER);
 	r = lp_create_grmr_node(g, "cpar", "cpar", PARSER);
 
-	lp_add_child(g, "expr", "expr_frag");
-	lp_add_child(g, "expr", "expr_end");
-	lp_add_child(g, "expr", "expr_paren");
 
-	lp_add_child(g, "expr_frag", "optws");
-	lp_add_child(g, "expr_frag", "num");
-	lp_add_child(g, "expr_frag", "optws");
-	lp_add_child(g, "expr_frag", "op");
-	lp_add_child(g, "expr_frag", "expr");
+	lp_add_child(g, "number", "optws");
+	lp_add_child(g, "number", "num");
+	lp_add_child(g, "number", "optws");
 
-	lp_add_child(g, "expr_num", "optws");
-	lp_add_child(g, "expr_num", "num");
-	lp_add_child(g, "expr_num", "optws");
+	lp_add_child(g, "elem", "number");
+	lp_add_child(g, "elem", "list");
 
-	lp_add_child(g, "expr_paren", "optws");
-	lp_add_child(g, "expr_paren", "opar");
-	lp_add_child(g, "expr_paren", "expr");
-	lp_add_child(g, "expr_paren", "cpar");
-	lp_add_child(g, "expr_paren", "optws");
-	lp_add_child(g, "expr_paren", "expr");
+	lp_add_child(g, "base_expr", "elem");
+	lp_add_child(g, "base_expr", "op");
+	lp_add_child(g, "base_expr", "base_expr_loop");
+
+	lp_add_child(g, "base_expr_loop", "base_expr");
+	lp_add_child(g, "base_expr_loop", "elem");
+
+
+	lp_add_child(g, "list", "optws");
+	lp_add_child(g, "list", "opar");
+	lp_add_child(g, "list", "base_expr");
+	lp_add_child(g, "list", "cpar");
+	lp_add_child(g, "list", "optws");
+
 
 	lp_add_child(g, "op", "op2");
 	lp_add_child(g, "op", "op1");
+
+	lp_add_child(g, "expr", "list");
+	lp_add_child(g, "expr", "semi");
 	return (g);
-
-}
-
-lp_grmr_t *
-gr_simple_splitting()
-{
-	return (NULL);
 }
 
 lp_grmr_t *
@@ -205,76 +210,108 @@ gr_simple_nesting()
 	r = lp_create_grmr_node(g, "letter_rep", NULL, SEQUENCER);
 	//r = lp_create_grmr_node(g, "_split_letters", NULL, SEQUENCER);
 	r = lp_create_grmr_node(g, "letters", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "elem", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "elems", NULL, SPLITTER);
+	r = lp_create_grmr_node(g, "elem_rep", NULL, SEQUENCER);
 	r = lp_create_grmr_node(g, "list", NULL, SEQUENCER);
 	r = lp_create_grmr_node(g, "opar", "opar", PARSER);
 	r = lp_create_grmr_node(g, "cpar", "cpar", PARSER);
 	r = lp_create_grmr_node(g, "optws", "optws", PARSER);
 
-	lp_add_child(g, "expr", "list");
-	lp_add_child(g, "expr", "letters");
 
+
+	/*
+	 * A letter is a char, with optional whitespace on either side of it.
+	 */
 	lp_add_child(g, "letter", "optws");
 	lp_add_child(g, "letter", "char");
+	lp_add_child(g, "letter", "optws");
 
-	lp_add_child(g, "letter_rep", "letter");
-	lp_add_child(g, "letter_rep", "letters");
+	/*
+	 * An element is either a letter or a list. This is how nesting is
+	 * implemented.
+	 */
+	lp_add_child(g, "elem", "letter");
+	lp_add_child(g, "elem", "list");
 
-	//lp_add_child(g, "_split_letters", "letters");
+	/*
+	 * A repetition of elems. We either parse the next elem or the
+	 * terminating elem.
+	 *
+	 *
+	 * +------------+
+	 * |            |
+	 * |            |
+	 * |     elem_rep
+	 * |     ^
+	 * v    /
+	 * elems
+	 *       \
+	 *        v
+	 *        elem
+	 */
+	lp_add_child(g, "elems", "elem_rep");
+	lp_add_child(g, "elems", "elem");
 
-	/* Parse one or more letters */
-	lp_add_child(g, "letters", "letter_rep");
-	lp_add_child(g, "letters", "letter");
+	lp_add_child(g, "elem_rep", "elem");
+	lp_add_child(g, "elem_rep", "elems");
 
-	/* Handle nesting */
+	/*
+	 * A list is an opening parem, followed by an arbitrary length sequence
+	 * of elems, followed by a cpar.
+	 */
 	lp_add_child(g, "list", "opar");
-	lp_add_child(g, "list", "expr");
+	lp_add_child(g, "list", "elems");
 	lp_add_child(g, "list", "cpar");
-	lp_add_child(g, "list", "expr");
+
+	/*
+	 * An expression is either a list of the form:
+	 *
+	 * 	(elem elem elem)
+	 *
+	 * Or
+	 *
+	 * 	 elem elem elem
+	 */
+	lp_add_child(g, "expr", "list");
+	lp_add_child(g, "expr", "elems");
+
 
 	return (g);
 }
 
-//char *calc_test1 = "1 + 2 - 3 * 4/5+34 >= 100&&56<=0;";
-//char *calc_test1 = "1 + 2 - 3 * 4 - 5 + 34 >= 100 && 56 <= 0;";
-char *calc_test1 = "1 + 2 - 3;";
-char *calc_paren_test = "(1 + 2 - 3) * 4/5+34 >= 100&&56<=0";
-char *nesting = "(a b c d (( e f g ) h i j k)";
-char *splitting= "a b 4 _ c 6 + @ ! ---";
+//char *calc_test = "1 + 2 - 3 * 4/5+34 >= 100&&56<=0;";
+//char *calc_test = "1 + 2 - 3 * 4 - 5 + 34 >= 100 && 56 <= 0;";
+char *calc_test = "1 + 2 - 3;";
+char *calc_paren_test = "(1 + (2 - 3));";
+char *big_nesting = "(a b c d (( e f g ) h i j k)";
+//char *small_nesting = "(a (b c) d)";
+char *small_nesting = "(a d)";
+char *nesting = "(a (b) d)";
 
 int
 main()
 {
-	//lp_grmr_t *calc = gr_calc();
-	//lp_grmr_t *calc_paren = gr_calc_paren();
-	lp_grmr_t *gnesting = gr_simple_nesting();
-	//lp_grmr_t *gsplitting = gr_simple_splitting();
-	size_t calc_test1_sz = strlen(calc_test1);
-	size_t calc_paren_test_sz = strlen(calc_paren_test);
-	size_t nesting_sz = strlen(nesting);
-	size_t splitting_sz = strlen(splitting);
-	/* convert to bits */
-	calc_test1_sz *= 8;
-	calc_paren_test_sz *= 8;
-	nesting_sz *= 8;
-	//lp_ast_t *calc_res = lp_create_ast();
-	//lp_run_grammar(calc, calc_res, calc_test1, calc_test1_sz);
-	//lp_ast_t *calc_paren_res = lp_create_ast();
-	//lp_run_grammar(calc_paren, calc_paren_res, calc_paren_test,
-	    //calc_paren_test_sz);
-	lp_ast_t *nesting_ast = lp_create_ast();
-	//lp_ast_t *splitting_ast = lp_create_ast();
-	printf("NESTING SZ = %u\n", nesting_sz);
-	lp_run_grammar(gnesting, nesting_ast, nesting, nesting_sz);
-	lp_dump_grmr(gnesting);
-	//lp_run_grammar(gsplitting, splitting_ast, splitting, splitting_sz);
-
-	//lp_run_grammar(calc, calc_res, calc_test1, calc_test1_sz);
-	/* OMG, it worked */
 	/*
-	lp_grmr_t *calc_paren = gr_calc_paren(calc);
-	lp_result_t *calc_paren_res = lp_create_result();
+	 * 3 different grammars, an expression grammar without parens, one with
+	 * parens, and a nested-list-grammar.
+	 */
+	lp_grmr_t *calc = gr_calc();
+	size_t calc_test_sz = strlen(calc_test);
+	calc_test_sz *= 8;
+	lp_ast_t *calc_res = lp_create_ast();
+	lp_run_grammar(calc, calc_res, calc_test, calc_test_sz);
+
+	lp_grmr_t *calc_paren = gr_calc_paren();
 	size_t calc_paren_test_sz = strlen(calc_paren_test);
+	calc_paren_test_sz *= 8;
+	lp_ast_t *calc_paren_res = lp_create_ast();
 	lp_run_grammar(calc_paren, calc_paren_res, calc_paren_test,
 	    calc_paren_test_sz);
-	*/
+
+	lp_grmr_t *gnesting = gr_simple_nesting();
+	size_t nesting_sz = strlen(nesting);
+	nesting_sz *= 8;
+	lp_ast_t *nesting_ast = lp_create_ast();
+	lp_run_grammar(gnesting, nesting_ast, nesting, nesting_sz);
 }

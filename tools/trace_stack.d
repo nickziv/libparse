@@ -73,6 +73,7 @@ parse$target:::rewind_end
 
 }
 
+/*
 parse$target:::got_here
 {
 	trace(arg0);
@@ -83,6 +84,7 @@ parse$target:::got_here
 {
 	trace(copyinstr(arg0));
 }
+*/
 
 graph$target:::dfs_rdnt_pop
 {
