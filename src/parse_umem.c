@@ -21,7 +21,6 @@ umem_cache_t *cache_grmr;
 umem_cache_t *cache_ast;
 umem_cache_t *cache_grmr_node;
 umem_cache_t *cache_ast_node;
-umem_cache_t *cache_content;
 umem_cache_t *cache_qed_edge;
 
 
@@ -86,15 +85,6 @@ ast_node_ctor(void *buf, void *ignored, int flags)
 	CTOR_HEAD;
 	lp_ast_node_t *r = buf;
 	bzero(r, sizeof (lp_ast_node_t));
-	return (0);
-}
-
-int
-content_ctor(void *buf, void *ignored, int flags)
-{
-	CTOR_HEAD;
-	content_t *r = buf;
-	bzero(r, sizeof (content_t));
 	return (0);
 }
 
@@ -177,16 +167,6 @@ parse_umem_init()
 		sizeof (lp_ast_node_t),
 		0,
 		ast_node_ctor,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
-		0);
-
-	cache_content = umem_cache_create("content",
-		sizeof (content_t),
-		0,
-		content_ctor,
 		NULL,
 		NULL,
 		NULL,
@@ -366,28 +346,6 @@ lp_rm_ast_node(lp_ast_node_t *i)
 	umem_cache_free(cache_ast_node, i);
 #else
 	bzero(i, sizeof (lp_ast_node_t));
-	free(i);
-#endif
-}
-
-content_t *
-lp_mk_content()
-{
-#ifdef UMEM
-	return (umem_cache_alloc(cache_content, UMEM_NOFAIL));
-#else
-	return (calloc(1, sizeof (lp_content_t)));
-#endif
-}
-
-void
-lp_rm_content(content_t *i)
-{
-#ifdef UMEM
-	bzero(i, sizeof (content_t));
-	umem_cache_free(cache_content, i);
-#else
-	bzero(i, sizeof (content_t));
 	free(i);
 #endif
 }

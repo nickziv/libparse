@@ -18,8 +18,7 @@
 #define E_ASTN_OFF_END_GT_IN	15
 #define E_ASTN_LRPTRS		16
 #define E_ASTN_LRPTRS_NULL	17
-#define E_ASTN_CONTENT		18
-#define E_ASTN_NO_CONTENT	19
+/* GAP */
 #define E_GN_TYPE		20
 #define E_GN_TOK_NULL		21
 #define E_GN_NAME_NULL		23
@@ -213,24 +212,6 @@ lp_test_ast_node(lp_ast_node_t *a)
 		if ((a->an_right->an_index - a->an_index) > 1) {
 			return (E_ASTN_INDEX_DIFF2BIG);
 		}
-	}
-
-
-	/*
-	 * TODO:
-	 * How do we test the content?
-	 * Only parsers contain content.
-	 * If they haven't failed, they _must_ contain content.
-	 * We can deduce by the ROP, whether the content can be of size 0 or
-	 * not.
-	 * TODO:
-	 * Implement content-setting.
-	 */
-	if (0 && a->an_type != PARSER && a->an_content != NULL) {
-		return (E_ASTN_CONTENT);
-	}
-	if (0 && a->an_type == PARSER && a->an_content == NULL) {
-		return (E_ASTN_NO_CONTENT);
 	}
 
 	return (0);

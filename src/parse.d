@@ -15,8 +15,6 @@ inline int E_ASTN_OFF_START_GT_IN = 14;
 inline int E_ASTN_OFF_END_GT_IN = 15;
 inline int E_ASTN_LRPTRS = 16;
 inline int E_ASTN_LRPTRS_NULL = 17;
-inline int E_ASTN_CONTENT = 18;
-inline int E_ASTN_NO_CONTENT = 19;
 inline int E_GN_TYPE = 20;
 inline int E_GN_TOK_NULL = 21;
 inline int E_GN_NAME_NULL = 23;
@@ -66,8 +64,6 @@ inline string e_test_descr[int err] =
 	err == E_ASTN_OFF_END_GT_IN ? "[ OFF END > AST IN SZ ]" :
 	err == E_ASTN_LRPTRS ? "[ ONLY CHILD HAS LEFT/RIGHT ]" :
 	err == E_ASTN_LRPTRS_NULL ? "[ SIBLING HAS NO LEFT/RIGHT ]" :
-	err == E_ASTN_CONTENT ? "[ NON PARSER HAS CONTENT ]" :
-	err == E_ASTN_NO_CONTENT ? "[ PARSER HAS NO CONTENT ]" :
 	err == E_GN_TYPE ? "[ INVALID GNODE TYPE ]" :
 	err == E_GN_TOK_NULL ? "[ GNODE TOKEN NULL ]" :
 	err == E_GN_NAME_NULL ? "[ GNODE NAME NULL ]" :
@@ -116,11 +112,6 @@ typedef struct tok {
 	char		*tok_nm;
 	lp_regex_t	*tok_regex;
 } tok_t;
-
-typedef struct content {
-	size_t		ctt_bits;
-	char		*ctt_buf;
-} content_t;
 
 typedef struct lp_grmr lp_grmr_t;
 typedef struct lp_ast_node lp_ast_node_t;
@@ -177,7 +168,6 @@ struct lp_ast_node {
 	lp_ast_node_t   *an_last_child;
 	lp_ast_node_t   *an_left;
 	lp_ast_node_t   *an_right;
-	content_t       *an_content;
 	ast_node_st_t   an_state;
 	uint32_t        an_off_start;
 	uint32_t        an_off_end;
@@ -193,7 +183,6 @@ typedef struct an_info {
 	void		*ani_last_child;
 	void		*ani_right;
 	void		*ani_left;
-	void		*ani_content;
 	uint32_t	ani_state;
 	uint32_t	ani_off_start;
 	uint32_t	ani_off_end;

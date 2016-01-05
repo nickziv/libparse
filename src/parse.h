@@ -75,7 +75,6 @@ int lp_add_tok_op(lp_tok_t *r, tok_op_t op, uint8_t width, size_t elems,
     char *data);
 /* returns id or 0 on failure */
 int lp_add_tok(lp_grmr_t *g, char *nm, lp_tok_t *tok);
-/* sets contents, given pointer or, alternatively, id */
 lp_grmr_t *lp_create_grammar(char *name);
 void lp_destroy_grammar(lp_grmr_t *);
 int lp_create_grmr_node(lp_grmr_t *g, char *name, char *tok, n_type_t ntype);

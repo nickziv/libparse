@@ -730,14 +730,6 @@ lp_rm_an_cb(selem_t e)
 	selem_t ile;
 	ile.sle_p = il;
 	slablist_rem(il->an_ast->ast_nodes, ile, 0, NULL);
-	if (il->an_content != NULL) {
-		size_t bufsz = (il->an_content->ctt_bits / 8) +
-		    (il->an_content->ctt_bits  % 8);
-
-		lp_rm_buf(il->an_content->ctt_buf, bufsz);
-
-		lp_rm_content(il->an_content);
-	}
 	lp_rm_ast_node(il);
 }
 

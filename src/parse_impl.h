@@ -30,11 +30,6 @@ typedef struct lp_tok {
 	slablist_t	*tok_segs;
 } lp_tok_t;
 
-typedef struct content {
-	size_t		ctt_bits;
-	char		*ctt_buf;
-} content_t;
-
 /*
  * Every ast_node_t has an associated state. The ANS_TRY state is the starting
  * state. It basically signifies that we have yet to try to match the input the
@@ -67,7 +62,6 @@ struct lp_ast_node {
 	lp_ast_node_t	*an_last_child;
 	lp_ast_node_t	*an_left;
 	lp_ast_node_t	*an_right;
-	content_t	*an_content;
 	ast_node_st_t	an_state;
 	uint32_t	an_off_start;
 	uint32_t	an_off_end;
@@ -158,7 +152,6 @@ lp_grmr_t *lp_mk_grmr(void);
 lp_ast_t *lp_mk_ast(void);
 lp_grmr_node_t *lp_mk_grmr_node(void);
 lp_ast_node_t *lp_mk_ast_node(void);
-content_t *lp_mk_content(void);
 qed_edge_t *lp_mk_qed_edge(void);
 void *lp_mk_buf(size_t);
 void *lp_mk_zbuf(size_t);
@@ -169,7 +162,6 @@ void lp_rm_grmr(lp_grmr_t *);
 void lp_rm_ast(lp_ast_t *);
 void lp_rm_grmr_node(lp_grmr_node_t *);
 void lp_rm_ast_node(lp_ast_node_t *);
-void lp_rm_content(content_t *);
 void lp_rm_qed_edge(qed_edge_t *);
 void lp_rm_buf(void *, size_t);
 int parse_umem_init(void);
