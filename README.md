@@ -57,29 +57,6 @@ repetitive tasks.
 Limitations
 ===========
 
-Groupers
---------
-
-Currently we can parse anything that doesn't need to be 'grouped'.
-
-For example a 'flat' mathematical expression:
-
-	1 + 2 - 3 * 4 / 5;
-
-But not a nested one:
-
-	
-	1 + (2 - 3 * 4) / 5;
-
-We _can_ parse the nested one but the AST won't _nest_ `(2 - 3 * 4)` into its
-own subtree. It'll simply parse the parens, and doesn't particularly care
-whether the parens match. This is why we want to implement the GROUPER gnodes.
-A grouper takes a begin and end token like `(` and `)`, or `{` and `}` or
-`begin` and `end`.
-
-As far as white-space based grouping goes, there are no good ideas on how to
-implement this, yet.
-
 Dynamic Tokens
 --------------
 
