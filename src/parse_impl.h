@@ -67,6 +67,31 @@ struct lp_ast_node {
 	uint32_t	an_off_end;
 };
 
+typedef struct lp_map_search {
+	lp_grmr_node_t	*ms_par;
+	lp_grmr_node_t	*ms_key;
+	lp_grmr_node_t	*ms_val;
+	int		ms_key_found;
+	int		ms_val_found;
+} lp_map_search_t;
+
+typedef struct lp_mapping {
+	char		*map_name;
+	char		*map_pd_par; /* used for pd-maps */
+	lg_graph_t	*map_graph;
+} lp_mapping_t;
+
+typedef struct lp_map_cookie {
+	lp_ast_node_t	*mc_p;
+	lp_ast_node_t	*mc_k;
+	lp_ast_node_t	*mc_v;
+	int		mc_found;
+	lp_map_search_t	*mc_ms;
+	lp_mapping_t	*mc_mapping;
+} lp_map_cookie_t;
+
+
+
 typedef struct lp_grmr_node {
 	n_type_t	gn_type;
 	uint16_t	gn_kids;
@@ -115,8 +140,8 @@ struct lp_ast {
 	int		ast_fin;
 	lp_ast_node_t	*ast_start; /* starting ast_node */
 	lg_graph_t	*ast_graph; /* the abstract syntax tree */
-	slablist_t	*ast_nodes; /* index of ast_nodes */
-	slablist_t	*ast_rem_q;
+	slablist_t	*ast_nodes; /* index of ast_nodes, by name */
+	//slablist_t	*ast_freelist; /* used when removing subtrees */
 	lp_grmr_t	*ast_grmr;
 	void		*ast_in;
 	size_t		ast_sz;
@@ -126,6 +151,7 @@ struct lp_ast {
 	uint32_t	ast_nsplit; /* splitters pushed to stack */
 	slablist_t	*ast_stack;
 	lg_graph_t	*ast_to_remove;
+	slablist_t	*ast_mappings;
 };
 
 /*
@@ -153,6 +179,7 @@ lp_ast_t *lp_mk_ast(void);
 lp_grmr_node_t *lp_mk_grmr_node(void);
 lp_ast_node_t *lp_mk_ast_node(void);
 qed_edge_t *lp_mk_qed_edge(void);
+lp_mapping_t *lp_mk_mapping(void);
 void *lp_mk_buf(size_t);
 void *lp_mk_zbuf(size_t);
 void lp_rm_tok(lp_tok_t *);
@@ -163,6 +190,7 @@ void lp_rm_ast(lp_ast_t *);
 void lp_rm_grmr_node(lp_grmr_node_t *);
 void lp_rm_ast_node(lp_ast_node_t *);
 void lp_rm_qed_edge(qed_edge_t *);
+void lp_rm_mapping(lp_mapping_t *);
 void lp_rm_buf(void *, size_t);
 int parse_umem_init(void);
 

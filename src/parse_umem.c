@@ -7,6 +7,7 @@
 #include <umem.h>
 #endif
 #include <stdlib.h>
+#include <stdio.h>
 #include <strings.h>
 #include "parse_impl.h"
 
@@ -22,6 +23,7 @@ umem_cache_t *cache_ast;
 umem_cache_t *cache_grmr_node;
 umem_cache_t *cache_ast_node;
 umem_cache_t *cache_qed_edge;
+umem_cache_t *cache_mapping;
 
 
 #ifdef UMEM
@@ -94,6 +96,15 @@ qed_edge_ctor(void *buf, void *ignored, int flags)
 	CTOR_HEAD;
 	qed_edge_t *r = buf;
 	bzero(r, sizeof (qed_edge_t));
+	return (0);
+}
+
+int
+mapping_ctor(void *buf, void *ignored, int flags)
+{
+	CTOR_HEAD;
+	lp_mapping_t *r = buf;
+	bzero(r, sizeof (lp_mapping_t));
 	return (0);
 }
 
@@ -177,6 +188,16 @@ parse_umem_init()
 		sizeof (qed_edge_t),
 		0,
 		qed_edge_ctor,
+		NULL,
+		NULL,
+		NULL,
+		NULL,
+		0);
+
+	cache_mapping = umem_cache_create("mapping",
+		sizeof (lp_mapping_t),
+		0,
+		mapping_ctor,
 		NULL,
 		NULL,
 		NULL,
@@ -368,6 +389,28 @@ lp_rm_qed_edge(qed_edge_t *i)
 	umem_cache_free(cache_qed_edge, i);
 #else
 	bzero(i, sizeof (qed_edge_t));
+	free(i);
+#endif
+}
+
+lp_mapping_t *
+lp_mk_mapping()
+{
+#ifdef UMEM
+	return (umem_cache_alloc(cache_mapping, UMEM_NOFAIL));
+#else
+	return (calloc(1, sizeof (lp_mapping_t)));
+#endif
+}
+
+void
+lp_rm_mapping(lp_mapping_t *i)
+{
+#ifdef UMEM
+	bzero(i, sizeof (lp_mapping_t));
+	umem_cache_free(cache_mapping, i);
+#else
+	bzero(i, sizeof (lp_mapping_t));
 	free(i);
 #endif
 }

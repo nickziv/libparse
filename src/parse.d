@@ -32,6 +32,7 @@ inline int E_ASTN_SPLIT_NKIDS = 34;
 inline int E_ASTN_INDEX_DIFF2BIG = 35;
 inline int E_ASTN_INDEX_DIFF2SMALL = 36;
 inline int E_AST_GRAPH_WEIGHTS = 37;
+inline int E_AST_STACK_DUPS = 38;
 
 inline string tok_op[int op] =
 	op == 0 ? "ROP_ZERO_ONE" :
@@ -45,7 +46,7 @@ inline string tok_op[int op] =
 	op == 8 ? "ROP_NONEOF" :
 	"ROP_ERROR: UNKNOWN CODE";
 
-inline string e_test_descr[int err] =
+inline string lp_e_test_descr[int err] =
 	err == 0 ? "[ PASS ]" :
 	err == E_AST_CHILD ? "[ BAD AST CHILD ]" :
 	err == E_ASTN_ID ? "[ AST ID TOO BIG ]" :
@@ -81,6 +82,7 @@ inline string e_test_descr[int err] =
 	err == E_ASTN_INDEX_DIFF2BIG ? "[ INDEX DIFF TOO BIG ]" :
 	err == E_ASTN_INDEX_DIFF2SMALL ? "[ INDEX DIFF TOO SMALL ]" :
 	err == E_AST_GRAPH_WEIGHTS ? "[ GRAPH WEIGHTS NOT MONOTOMIC ]" :
+	err == E_AST_STACK_DUPS ? "[ STACK HAS DUPLICATE AST NODES ]" :
 	"[[BAD ERROR CODE]]";
 
 typedef enum regex_op {
@@ -118,42 +120,45 @@ typedef struct lp_ast_node lp_ast_node_t;
 typedef struct lp_ast lp_ast_t;
 
 struct lp_ast {
-        int             ast_fin;
-        lp_ast_node_t   *ast_start; /* starting ast_node */
-        lg_graph_t      *ast_graph;
-        slablist_t      *ast_nodes; /* index of ast_nodes */
-        lp_grmr_t       *ast_grmr;
-        void            *ast_in;
-        size_t          ast_sz;
-	int		ast_matched;
-        slablist_t      *ast_stack;
-        int             ast_dfs_nesting;
-	int		ast_dfs_unwind;
+	int             ast_fin;
+	lp_ast_node_t   *ast_start; /* starting ast_node */
+	lg_graph_t      *ast_graph; /* the abstract syntax tree */
+	slablist_t      *ast_nodes; /* index of ast_nodes */
+	slablist_t      *ast_rem_q;
+	lp_grmr_t       *ast_grmr;
+	void            *ast_in;
+	size_t          ast_sz;
+	int             ast_matched;
+	int             ast_eoi; /* end of input */
+	int             ast_bail; /* tell DFS to bail */
+	uint32_t        ast_nsplit; /* splitters pushed to stack */
+	slablist_t      *ast_stack;
+	lg_graph_t      *ast_to_remove;
+	slablist_t      *ast_mappings;
 };
 
-
 typedef enum n_type {
-        /*
-         * Indicates that the children should be tried in sequence.
-         */
-        SEQUENCER,
-        /*
-         * Indicates a split or a fork -- 2 or more alternatives to what can be
-         * parsed next.
-         */
-        SPLITTER,
-        /*
-         * Repeats its children as many times as it can.
-         */
-        REPEATER,
-        PARSER
+	/*
+	 * Indicates that the children should be tried in sequence.
+	 */
+	SEQUENCER,
+	/*
+	 * Indicates a split or a fork -- 2 or more alternatives to what can be
+	 * parsed next.
+	 */
+	SPLITTER,
+	/*
+	 * Repeats its children as many times as it can.
+	 */
+	REPEATER,
+	PARSER
 } n_type_t;
 
 typedef enum ast_node_st {
-        ANS_TRY = 0,
-        ANS_FAIL,
-        ANS_MATCH,
-        ANS_MATCH_PART
+	ANS_TRY = 0,
+	ANS_FAIL,
+	ANS_MATCH,
+	ANS_MATCH_PART
 } ast_node_st_t;
 
 
@@ -255,14 +260,14 @@ translator gn_info_t < lp_grmr_node_t *g >
 };
 
 struct lp_grmr {
-        uint64_t        grmr_refcnt;
-        char            *grmr_name;     /* debug name */
-        char            grmr_fin;       /* bool */
-        lp_tok_ls_t     *grmr_toks;
-        slablist_t      *grmr_gnodes;/* srt ls of all grmr_node-ptrs */
-        slablist_t      *grmr_bindings;/* srt ls of all binding-ptrs */
-        lg_graph_t      *grmr_graph;
-        lp_grmr_node_t  *grmr_root;
+	uint64_t        grmr_refcnt;
+	char            *grmr_name;     /* debug name */
+	char            grmr_fin;       /* bool */
+	lp_tok_ls_t     *grmr_toks;
+	slablist_t      *grmr_gnodes;/* srt ls of all grmr_node-ptrs */
+	slablist_t      *grmr_bindings;/* srt ls of all binding-ptrs */
+	lg_graph_t      *grmr_graph;
+	lp_grmr_node_t  *grmr_root;
 };
 
 
@@ -289,8 +294,6 @@ typedef struct astinfo {
 	void	*asti_in;
 	size_t	asti_sz;
 	int	asti_matched;
-	int	asti_nesting;
-	int	asti_unwind;
 } astinfo_t;
 
 #pragma D binding "1.6.1" translator
@@ -302,10 +305,6 @@ translator astinfo_t < lp_ast_t *a >
 			sizeof (a->ast_in));
 	asti_sz = *(size_t *)copyin((uintptr_t)&a->ast_sz,
 			sizeof (a->ast_sz));
-	asti_nesting = *(int *)copyin((uintptr_t)&a->ast_dfs_nesting,
-			sizeof (a->ast_dfs_nesting));
-	asti_unwind = *(int *)copyin((uintptr_t)&a->ast_dfs_unwind,
-			sizeof (a->ast_dfs_unwind));
 	asti_matched = *(int *)copyin((uintptr_t)&a->ast_matched,
 			sizeof (a->ast_matched));
 };

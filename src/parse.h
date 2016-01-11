@@ -17,8 +17,8 @@
 typedef enum tok_op {
 	/*
 	 * Following 2 ops match zero, only one, or at least one of the
-	 * segment. This makes it easy to expasts optional tokens --- tokens
-	 * that can be pastent, but don't have to be. Whitespace in
+	 * segment. This makes it easy to express optional tokens --- tokens
+	 * that can be present, but don't have to be. Whitespace in
 	 * mathematical expressions is an example --- "1 + 2" and "1+2" have
 	 * the same meaning.
 	 */
@@ -36,14 +36,15 @@ typedef enum tok_op {
 	/*
 	 * Matches anything in the segment in any order.
 	 */
-	ROP_ANYOF, //TODO
-	ROP_ANYOF_ONE_PLUS, //TODO
+	ROP_ANYOF,
+	ROP_ANYOF_ONE_PLUS,
 	// maybe error in this one, under?
-	ROP_ANYOF_ZERO_ONE_PLUS, //TODO
+	ROP_ANYOF_ZERO_ONE,
+	ROP_ANYOF_ZERO_ONE_PLUS,
 	/*
 	 * Explicitly fails if the thing in the segment is matched.
 	 */
-	ROP_NONEOF, //TODO
+	ROP_NONEOF,
 	ROP_END /* internally used */
 } tok_op_t;
 
@@ -63,6 +64,7 @@ typedef enum n_type {
 typedef struct lp_grmr lp_grmr_t;
 typedef struct lp_tok_ls lp_tok_ls_t;
 typedef struct lp_ast lp_ast_t;
+typedef struct lp_ast_node lp_ast_node_t;
 typedef struct lp_tok lp_tok_t;
 typedef struct lp_grmr_node lp_grmr_node_t;
 
@@ -93,7 +95,7 @@ void lp_destroy_ast(lp_ast_t *);
 int lp_finalize_grammar(lp_grmr_t *);
 int lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz);
 
-int lp_finish_run(lp_ast_t *ast);
+void lp_finish_run(lp_ast_t *ast);
 lp_grmr_t *lp_clone_grammar(char *nm, lp_grmr_t *g);
 /* it will find tokens that match expr foo and have id T */
 void lp_match_token(lp_ast_t *r, uint64_t tokid, lp_tok_t *tok, lp_match_cb_t cb);
@@ -105,8 +107,8 @@ typedef void lp_grmr_cb_t(lp_grmr_node_t *);
 typedef void lp_ast_cb_t(lp_grmr_node_t *);
 void lp_walk_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);
 void lp_walk_grmr_bfs(lp_grmr_t *, lp_grmr_cb_t);
-int lp_bfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
-int lp_dfs_walk_grammar(lp_grmr_t *, lp_ast_t *ast, void *, size_t);
 void lp_walk_ast_dfs(lp_grmr_t *, lp_ast_cb_t);
 void lp_walk_ast_bfs(lp_grmr_t *, lp_ast_cb_t);
 void lp_dump_grmr(lp_grmr_t *);
+int lp_map_cc(lp_ast_t *, char *mapnm, char *parent, char *kid1, char *kid2);
+int lp_map_pd(lp_ast_t *, char *mapnm, char *parent, char *descendant);

@@ -269,8 +269,6 @@ eval_tok_seg(lp_grmr_t *g, tok_seg_t *s,
 		PARSE_EVAL_TOK(g, s->ts_op, 0);
 		return (0);
 	}
-	/* when we match ZERO_ONE whitespace, it says we matched 8 bits, when
- 	 * in fact we matched 0 */
 	switch (s->ts_op) {
 
 	case ROP_ZERO_ONE:
@@ -289,6 +287,9 @@ eval_tok_seg(lp_grmr_t *g, tok_seg_t *s,
 		c = has_allof(s, input, bit_off);
 		break;
 	case ROP_ANYOF:
+		c = has_anyof(s, input, bit_off);
+		break;
+	case ROP_ANYOF_ZERO_ONE:
 		c = has_anyof(s, input, bit_off);
 		break;
 	case ROP_NONEOF:
@@ -377,17 +378,23 @@ lp_create_tokls()
  * grammar-structure and AST-strucutre in which they are stored, respectively.
  */
 
-
 int
 an_cmp(selem_t e1, selem_t e2)
 {
-	lp_ast_node_t *i1 =  e1.sle_p;
-	lp_ast_node_t *i2 =  e2.sle_p;
-	if (i1->an_id < i2->an_id) {
+	lp_ast_node_t *i1 = e1.sle_p;
+	lp_ast_node_t *i2 = e2.sle_p;
+	int cmp = strcmp(i1->an_gnm, i2->an_gnm);
+	if (cmp > 0) {
+		return (1);
+	}
+	if (cmp < 0) {
 		return (-1);
 	}
 	if (i1->an_id > i2->an_id) {
 		return (1);
+	}
+	if (i1->an_id < i2->an_id) {
+		return (-1);
 	}
 	return (0);
 }
@@ -395,14 +402,13 @@ an_cmp(selem_t e1, selem_t e2)
 int
 an_bnd(selem_t e, selem_t min, selem_t max)
 {
-	lp_ast_node_t *i = e.sle_p;
-	lp_ast_node_t *imin = min.sle_p;
-	lp_ast_node_t *imax = max.sle_p;
-	if (i->an_id > imax->an_id) {
-		return (1);
-	}
-	if (i->an_id < imin->an_id) {
+	int cmp = an_cmp(e, min);
+	if (cmp < 0) {
 		return (-1);
+	}
+	cmp = an_cmp(e, max);
+	if (cmp > 0) {
+		return (1);
 	}
 	return (0);
 }
@@ -411,7 +417,7 @@ lp_ast_t *
 lp_create_ast(void)
 {
 	lp_ast_t *r = lp_mk_ast();
-	r->ast_nodes = slablist_create("ast_il*", an_cmp, an_bnd, SL_SORTED);
+	r->ast_nodes = slablist_create("ast_nodes", an_cmp, an_bnd, SL_SORTED);
 	r->ast_graph = lg_create_wdigraph();
 	PARSE_CREATE_AST(r);
 	return (r);
@@ -525,7 +531,15 @@ add_ast_node(lp_ast_t *ast, lp_ast_node_t *ast_node)
 {
 	selem_t ie;
 	ie.sle_p = ast_node;
-	slablist_add(ast->ast_nodes, ie, 0);
+	int r = slablist_add(ast->ast_nodes, ie, 0);
+}
+
+void
+rem_ast_node(lp_ast_t *ast, lp_ast_node_t *ast_node)
+{
+	selem_t ie;
+	ie.sle_p = ast_node;
+	int r = slablist_rem(ast->ast_nodes, ie, 0, NULL);
 }
 
 int
@@ -599,12 +613,24 @@ lp_ast_node_t *
 lp_create_ast_node(lp_grmr_node_t *gn, lp_ast_t *ast)
 {
 	lp_ast_node_t *a = lp_mk_ast_node();
-	a->an_id = slablist_get_elems(ast->ast_nodes);
+	/*
+	 * We set the ID to the pointer, because it is unique and will allow us
+	 * to do ranged comparisons.
+	 */
+	a->an_id = (uint64_t)a;
 	a->an_ast = ast;
-	add_ast_node(ast, a);
 	a->an_gnm = gn->gn_name;
+	add_ast_node(ast, a);
 	PARSE_CREATE_AST_NODE(ast->ast_grmr, a);
 	return (a);
+}
+
+void
+lp_destroy_ast_node(lp_ast_node_t *n)
+{
+	rem_ast_node(n->an_ast, n);
+	lp_rm_ast_node(n);
+	PARSE_DESTROY_AST_NODE(n);
 }
 
 /*
@@ -719,20 +745,6 @@ lp_finalize_grammar(lp_grmr_t *g)
 }
 
 
-void
-lp_rm_an_cb(selem_t e)
-{
-	lp_ast_node_t *il = e.sle_p;
-	PARSE_DESTROY_AST_NODE(il);
-	/*
-	 * We remove this ast_node from the index.
-	 */
-	selem_t ile;
-	ile.sle_p = il;
-	slablist_rem(il->an_ast->ast_nodes, ile, 0, NULL);
-	lp_rm_ast_node(il);
-}
-
 selem_t
 parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 {
@@ -748,6 +760,10 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 	}
 	uint64_t i = 0;
 	int total_matched = 0;
+	/*
+	 * The general idea is that we keep parsing segments. Unless we fail to
+	 * parse a segment that _must_ be parsed (i.e. is not optional).
+	 */
 	while (i < sz) {
 		tok_seg_t *seg = e[i].sle_p;
 		int matched = eval_tok_seg(ast->ast_grmr, seg, ast->ast_in,
@@ -755,18 +771,28 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 		total_matched += matched;
 		if ((matched == 0 && (seg->ts_op != ROP_ZERO_ONE &&
 		    seg->ts_op != ROP_ZERO_ONE_PLUS &&
+		    seg->ts_op != ROP_ANYOF_ZERO_ONE &&
 		    seg->ts_op != ROP_ANYOF_ZERO_ONE_PLUS &&
 		    seg->ts_op != ROP_NONEOF)) || (matched > 0 &&
 		    (seg->ts_op == ROP_NONEOF))) {
 			an->an_state = ANS_FAIL;
 			PARSE_FAIL(an);
+			/* We may have changed the splitter's state due to an
+			 * earlier match. We need to undo that.
+			 */
+			if (an->an_parent->an_type == SPLITTER) {
+				an->an_parent->an_state = ANS_TRY;
+				//PARSE_MATCH(an->an_parent);
+			}
 			break;
 		} else {
-			an->an_state = ANS_MATCH;
-			PARSE_MATCH(an);
-			if (an->an_parent->an_type == SPLITTER) {
-				an->an_parent->an_state = ANS_MATCH;
-				PARSE_MATCH(an->an_parent);
+			if (an->an_state != ANS_FAIL) {
+				an->an_state = ANS_MATCH;
+				PARSE_MATCH(an);
+				if (an->an_parent->an_type == SPLITTER) {
+					an->an_parent->an_state = ANS_MATCH;
+					PARSE_MATCH(an->an_parent);
+				}
 			}
 		}
 		i++;
@@ -916,7 +942,7 @@ ast_pop_astn(lp_ast_t *ast)
 				PARSE_FAIL(p);
 			}
 		}
-		lp_rm_ast_node(l);
+		lp_destroy_ast_node(l);
 	}
 	if (l->an_state == ANS_MATCH) {
 		/*
@@ -1017,6 +1043,11 @@ lp_queue_removal(lp_ast_node_t *p, lp_ast_node_t *c)
 	weight.ge_u = c->an_index;
 
 	lg_wconnect(g, gp, gc, weight);
+	/*
+	selem_t child;
+	child.sle_p = c;
+	int r = slablist_add(ast->ast_freelist, child, 0);
+	*/
 }
 
 /*
@@ -1041,8 +1072,22 @@ rem_subtree_edge(gelem_t from, gelem_t to, gelem_t weight)
 	lp_ast_node_t *parent = from.ge_p;
 	lp_ast_node_t *child = to.ge_p;
 	lp_rem_ast_child_lite(parent, child);
-	lp_rm_ast_node(child);
+	lp_destroy_ast_node(child);
 }
+
+/*
+selem_t
+destroy_ast_node_fold(selem_t z, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		lp_ast_node_t *n = e[i].sle_p;
+		lp_destroy_ast_node(n);
+		i++;
+	}
+	return (z);
+}
+*/
 
 /*
  * Given an AST node, it will remove all of its descendants. It uses BFS to do
@@ -1053,6 +1098,9 @@ ast_rem_subtree(lp_ast_t *ast)
 {
 	PARSE_REM_SUBTREE_BEGIN();
 	ast->ast_to_remove = lg_create_wdigraph();
+	/*ast->ast_freelist = slablist_create("ast_freelist", an_cmp, an_bnd,
+	    SL_SORTED);*/
+
 	selem_t last = slablist_end(ast->ast_stack);
 	lp_ast_node_t *n = last.sle_p;
 	PARSE_REM_SUBTREE_ROOT(n);
@@ -1067,6 +1115,21 @@ ast_rem_subtree(lp_ast_t *ast)
 	lg_edges(ast->ast_to_remove, rem_subtree_edge);
 	lg_destroy_graph(ast->ast_to_remove);
 	ast->ast_to_remove = NULL;
+
+	/*
+	 * XXX Ignore this for now, bug may have been fixed.
+	 *
+	 * We use this free list to free the ast nodes from memory. In theory,
+	 * it seems like we should be able to do this as aprt of lg_edges()'s
+	 * rem_subtree_edge() callback. However, that was resulting
+	 * double-frees. This is a hack around the problem. Ultimately, we
+	 * should some day determine if this is actually doable from within
+	 * that callback, and replace this hackish implementation with that
+	 * one.
+	 */
+	selem_t s_ignored;
+	/*slablist_foldr(ast->ast_freelist, destroy_ast_node_fold, s_ignored);*/
+	/*slablist_destroy(ast->ast_freelist, NULL);*/
 	PARSE_REM_SUBTREE_END();
 }
 
@@ -1488,63 +1551,245 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 
 
 
-int
-node_print(gelem_t agg, gelem_t gn, gelem_t *aggp)
+/*
+ * This function tells the system that the result can be finalized as there is
+ * no more input.
+ */
+void
+lp_finish_run(lp_ast_t *ast)
 {
-	(void)aggp;
-	(void)agg;
-	lp_grmr_node_t *node = gn.ge_p;
-	printf("VISITED: %s\n", node->gn_name);
+	ast->ast_fin = 1;
+}
+
+void
+map_neighbors(gelem_t f, gelem_t t, gelem_t w, gelem_t arg)
+{
+	(void)f;
+	(void)t;
+	(void)w;
+	lp_map_search_t *s = arg.ge_p;
+	if (s->ms_key == t.ge_p) {
+		s->ms_key_found++;
+	}
+	if (s->ms_val == t.ge_p) {
+		s->ms_val_found++;
+	}
+}
+
+int
+mapping_cmp(selem_t a, selem_t b)
+{
+	lp_mapping_t *am = a.sle_p;
+	lp_mapping_t *bm = b.sle_p;
+	return (strcmp(am->map_name, bm->map_name));
+}
+
+int
+mapping_bnd(selem_t a, selem_t min, selem_t max)
+{
+	int mincmp = mapping_cmp(a, min);
+	if (mincmp < 0) {
+		return (-1);
+	}
+	int maxcmp = mapping_cmp(a, max);
+	if (maxcmp > 0) {
+		return (1);
+	}
 	return (0);
 }
 
 void
-relation(gelem_t c, gelem_t p, gelem_t opt)
+map_adjcb(gelem_t from, gelem_t to, gelem_t cookie)
 {
-	(void)opt;
-	lp_grmr_node_t *pnode = p.ge_p;
-	lp_grmr_node_t *cnode = c.ge_p;
-	printf("CROSSING: %s -> %s\n", pnode->gn_name, cnode->gn_name);
+	lp_map_cookie_t *c = cookie.ge_p;
+	lp_grmr_node_t *K = c->mc_ms->ms_key;
+	lp_grmr_node_t *V = c->mc_ms->ms_val;
+	lp_grmr_node_t *P = c->mc_ms->ms_par;
+	lp_ast_node_t *par = from.ge_p;
+	lp_ast_node_t *a = to.ge_p;
+	if (strcmp(P->gn_name, par->an_gnm) == 0) {
+		if (par != c->mc_p) {
+			c->mc_found = 1;
+		}
+		if (strcmp(K->gn_name, a->an_gnm) == 0) {
+			c->mc_k = a;
+			c->mc_found++;
+		} else if (strcmp(V->gn_name, a->an_gnm) == 0) {
+			c->mc_v = a;
+			c->mc_found++;
+		}
+		if (c->mc_found == 3) {
+			/*
+			 * Now we can add to the index.
+			 */
+			lg_graph_t *g = c->mc_mapping->map_graph;
+			gelem_t key;
+			gelem_t val;
+			gelem_t w;
+			key.ge_p = c->mc_k;
+			val.ge_p = c->mc_v;
+			w.ge_u = c->mc_v->an_off_start;
+			lg_wconnect(g, key, val, w);
+			c->mc_found = 0;
+		}
+	}
 }
 
-int
-lp_bfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
-{
-	ast->ast_stack = NULL;
-	ast->ast_in = in;
-	ast->ast_sz = sz;
-	ast->ast_grmr = g;
-	gelem_t root;
-	root.ge_p = g->grmr_root;
-	gelem_t state;
-	lp_grmr_node_t *gn = root.ge_p;
-	printf("NAME: %s\n", gn->gn_name);
-	state.ge_p = ast;
-	lg_bfs_fold(g->grmr_graph, root, relation, node_print, state);
-	return (0);
-}
-
-int
-lp_dfs_walk_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
-{
-	(void)g;
-	(void)ast;
-	(void)in;
-	(void)sz;
-	return (0);
-
-}
 
 /*
- * This function tells the system that the astult can be finalized as there is
- * no more input.
+ * Map Child to Child:
+ * -------------------
+ * This function creates a multimap (implemented as a graph_t for expediency).
+ * We name the multimap `nm`, and we map the child `v` of `p` to child `k` of
+ * `p`. We can only map nodes that share the same parent. The index can later
+ * be accessed by its name `nm`. The index is stored in the lp_ast_t.
+ *
+ * This function processes an AST that has already been parsed. We _could_ have
+ * implemented it to process an AST _as_ it's being built, however, this
+ * implementation is easier to reason about. The on-the-fly method would
+ * increase the parse-time, but _may_ reduce overall time. Or maybe not.
+ * Requires some research.
  */
 int
-lp_finish_run(lp_ast_t *ast)
+lp_map_cc(lp_ast_t *a, char *nm, char *p, char *k, char *v)
 {
-	uint64_t foo = (uint64_t)ast;
-	ast->ast_fin = 1;
-	return (foo);
+	if (nm == NULL || p == NULL || k == NULL || v == NULL || a == NULL) {
+		return (-1);
+	}
+	lp_map_search_t ms;
+	bzero(&ms, sizeof (ms));
+	gelem_t arg;
+	arg.ge_p = &ms;
+
+	/* Make sure that `p`, `k`, and `v` exist in grmr */
+	lp_grmr_node_t *P = find_grmr_node(a->ast_grmr, p);
+	lp_grmr_node_t *K = find_grmr_node(a->ast_grmr, k);
+	lp_grmr_node_t *V = find_grmr_node(a->ast_grmr, v);
+
+	if (P == NULL || K == NULL || V == NULL) {
+		return (-1);
+	}
+	ms.ms_par = P;
+	ms.ms_key = K;
+	ms.ms_val = V;
+	/* Make sure that `p`, has kids `k` and `v` */
+	gelem_t gP;
+	gP.ge_p = P;
+	lg_neighbors_arg(a->ast_grmr->grmr_graph, gP, map_neighbors, arg);
+	/* We return if we found nothing */
+	if (!(ms.ms_key_found && ms.ms_val_found)) {
+		return (-1);
+	}
+	/*
+	 * We return if any of the kids are not unique -- would need a more
+	 * complicated interface to support this feature. Namely one that
+	 * allowed specification of graph-weights.
+	 */
+	if (ms.ms_key_found > 1 || ms.ms_val_found > 1) {
+		return (-1);
+	}
+
+	/* Create index, add to AST's index list */
+	lp_mapping_t *m = lp_mk_mapping();
+	m->map_name = nm;
+	m->map_graph = lg_create_wdigraph();
+	selem_t sm;
+	sm.sle_p = m;
+	if (a->ast_mappings == NULL) {
+		a->ast_mappings = slablist_create("mappings", mapping_cmp,
+		    mapping_bnd, SL_SORTED);
+	}
+	int f = slablist_add(a->ast_mappings, sm, 0);
+	if (f == SL_EDUP) {
+		lp_rm_mapping(m);
+		return (-1);
+	}
+	/* Use a BFS to achieve this result */
+	lp_map_cookie_t c;
+	bzero(&c, sizeof (lp_map_cookie_t));
+	c.mc_ms = &ms;
+	gelem_t cookie;
+	cookie.ge_p = &c;
+	gelem_t start;
+	start.ge_p = a->ast_start;
+	lg_bfs_fold(a->ast_graph, start, map_adjcb, NULL, cookie);
+	return (0);
+}
+
+selem_t
+map_pd_fold(selem_t z, selem_t *e, uint64_t sz)
+{
+	lp_mapping_t *m = z.sle_p;
+	uint64_t i = 0;
+	while (i < sz) {
+		lp_ast_node_t *n = e[i].sle_p;
+		lp_ast_node_t *p = n->an_parent;
+		while (p != NULL) {
+			int c = strcmp(p->an_gnm, m->map_pd_par);
+			if (c) {
+				gelem_t gp;
+				gelem_t gd;
+				gelem_t w;
+				gp.ge_p = p;
+				gd.ge_p = n;
+				w.ge_u = n->an_off_start;
+				lg_wconnect(m->map_graph, gp, gd, w);
+				break;
+			}
+			p = p->an_parent;
+		}
+		i++;
+	}
+	return (z);
+}
+
+
+/*
+ * Map Parent to Descendant(s):
+ * ----------------------------
+ *
+ * This function creats a multimap that maps all parents of type `p` to all of
+ * the descendants of type `d`. Given a descendant `D` it will get mapped to
+ * the nearest ancestor of type `p`.
+ */
+int
+lp_map_pd(lp_ast_t *ast, char *mapnm, char *p, char *d)
+{
+	lp_ast_node_t *nmin = lp_mk_ast_node();
+	nmin->an_id = 1;
+	nmin->an_gnm = d;
+
+	lp_ast_node_t *nmax = lp_mk_ast_node();
+	nmin->an_id = UINT64_MAX;
+	nmax->an_gnm = d;
+	lp_mapping_t *m = lp_mk_mapping();
+	m->map_name = mapnm;
+
+	selem_t sm;
+	sm.sle_p = m;
+	if (ast->ast_mappings == NULL) {
+		ast->ast_mappings = slablist_create("mappings", mapping_cmp,
+		    mapping_bnd, SL_SORTED);
+	}
+	int f = slablist_add(ast->ast_mappings, sm, 0);
+	if (f == SL_EDUP) {
+		lp_rm_mapping(m);
+		return (-1);
+	}
+	m->map_graph = lg_create_wdigraph();
+	m->map_pd_par = p;
+
+
+	selem_t zero;
+	selem_t smax;
+	selem_t smin;
+	smin.sle_p = nmin;
+	smax.sle_p = nmax;
+	zero.sle_p = m;
+	slablist_foldr_range(ast->ast_nodes, map_pd_fold, smin, smax, zero);
+	lp_rm_ast_node(nmin);
+	lp_rm_ast_node(nmax);
+	return (0);
 }
 
 

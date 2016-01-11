@@ -36,6 +36,7 @@
 #define E_ASTN_INDEX_DIFF2BIG	35
 #define E_ASTN_INDEX_DIFF2SMALL	36
 #define	E_AST_GRAPH_WEIGHTS	37
+#define	E_AST_STACK_DUPS	38
 
 static selem_t ignored;
 
@@ -194,8 +195,6 @@ lp_test_ast_node(lp_ast_node_t *a)
 
 	if (a->an_left != NULL) {
 		if (!(a->an_left->an_index < a->an_index)) {
-			PARSE_GOT_HERE(a);
-			PARSE_GOT_HERE(a->an_left);
 			return (E_ASTN_INDEX_DIFF2SMALL);
 		}
 		if ((a->an_index - a->an_left->an_index) > 1) {
@@ -205,8 +204,6 @@ lp_test_ast_node(lp_ast_node_t *a)
 
 	if (a->an_right != NULL) {
 		if (!(a->an_right->an_index > a->an_index)) {
-			PARSE_GOT_HERE(a);
-			PARSE_GOT_HERE(a->an_right);
 			return (E_ASTN_INDEX_DIFF2SMALL);
 		}
 		if ((a->an_right->an_index - a->an_index) > 1) {
@@ -315,6 +312,105 @@ lp_test_ast_graph(lp_ast_t *ast)
 	return (test_ast_graph_failed);
 }
 
+typedef struct astn_count {
+	uint64_t	astnc_count;
+	lp_ast_node_t	*astnc_node;
+} astn_count_t;
+
+int
+astnc_cmp(selem_t e1, selem_t e2)
+{
+	astn_count_t *c1 = e1.sle_p;
+	astn_count_t *c2 = e2.sle_p;
+
+	if (c1->astnc_node > c2->astnc_node) {
+		return (1);
+	}
+	if (c1->astnc_node < c2->astnc_node) {
+		return (-1);
+	}
+	return (0);
+}
+
+int
+astnc_bnd(selem_t e1, selem_t min, selem_t max)
+{
+	astn_count_t *c1 = e1.sle_p;
+	astn_count_t *cmin = min.sle_p;
+	astn_count_t *cmax = max.sle_p;
+
+	if (c1->astnc_node < cmin->astnc_node) {
+		return (-1);
+	}
+	if (c1->astnc_node > cmax->astnc_node) {
+		return (1);
+	}
+	return (0);
+}
+
+selem_t
+count_astns(selem_t z, selem_t *e, uint64_t c)
+{
+	slablist_t *dups = z.sle_p;
+	selem_t found;
+	uint64_t i = 0;
+	while (i < c) {
+		lp_ast_node_t *a = e[i].sle_p;
+		astn_count_t *ac = lp_mk_zbuf(sizeof (astn_count_t));
+		ac->astnc_count = 0;
+		ac->astnc_node = a;
+		int f = slablist_find(dups, e[i], &found);
+		if (f == 0) {
+			astn_count_t *fnd = found.sle_p;
+			fnd->astnc_count++;
+		} else {
+			selem_t acs;
+			acs.sle_p = ac;
+			slablist_add(dups, acs, 0);
+		}
+		i++;
+	}
+	return (z);
+}
+
+selem_t
+detect_dups(selem_t z, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	int *dups_detected = z.sle_p;
+	while (i < sz) {
+		astn_count_t *a = e[i].sle_p;
+		if (a->astnc_count > 1) {
+			*dups_detected++;
+		}
+		i++;
+	}
+	return (z);
+}
+
+void
+free_astnc(selem_t e)
+{
+	astn_count_t *a = e.sle_p;
+	lp_rm_buf(a, sizeof (astn_count_t));
+}
+
+int
+lp_test_stack_dups(slablist_t *stack, slablist_t *dups)
+{
+	selem_t zero;
+	zero.sle_p = dups;
+	int dups_detected = 0;
+	slablist_foldr(stack, count_astns, zero);
+	zero.sle_p = &dups_detected;
+	slablist_foldr(dups, detect_dups, zero);
+	slablist_destroy(dups, free_astnc);
+	if (dups_detected > 0) {
+		return (E_AST_STACK_DUPS);
+	}
+	return (0);
+}
+
 /*
  * We sanity check the lp_ast_t struct.
  */
@@ -337,6 +433,12 @@ lp_test_ast(lp_ast_t *ast)
 		}
 		if (count.sle_u < ast->ast_nsplit) {
 			return (E_AST_NSPLIT_TOO_BIG);
+		}
+		slablist_t *dups = slablist_create("ast_stack_dup_test",
+				astnc_cmp, astnc_bnd, SL_SORTED);
+		int r = lp_test_stack_dups(ast->ast_stack, dups);
+		if (r) {
+			return (r);
 		}
 	}
 	if (ast->ast_graph != NULL) {

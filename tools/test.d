@@ -1,5 +1,6 @@
 #pragma D option flowindent
 
+/*
 parse$target:::trace_ast_begin,
 parse$target:::trace_ast_end
 {
@@ -14,16 +15,8 @@ parse$target:::trace_ast
 	args[1]->ani_gnm, args[1]->ani_state, args[1]->ani_off_start, args[1]->ani_off_end, arg1,
 	args[2]->ani_gnm, args[2]->ani_state, args[2]->ani_off_start, args[2]->ani_off_end, arg2);
 }
+*/
 
-parse$target::lp_test_ast_node:got_here
-{
-	printf("%p", arg0);
-}
-
-parse$target::lp_set_ast_offsets:got_here
-{
-	printf("%u", arg0);
-}
 
 parse$target:::ast_add_child,
 parse$target:::ast_rem_child
@@ -59,10 +52,6 @@ parse$target:::rewind_end
 {
 	trace(arg0);
 }
-parse$target::ast_rewind:got_here
-{
-	trace(arg0);
-}
 
 parse$target:::ast_pop
 {
@@ -78,29 +67,62 @@ parse$target:::ast_push
 {
 	printf("%s[%p]", args[0]->ani_gnm, arg0);
 }
+/*
+slablist$target:::add_begin
+/arg1 == 0x702540/
+{
+	printf("%p", arg1);
+	ustack();
+}
+
+slablist$target:::rem_begin
+/1 || arg1 == 0x702540/
+{
+	printf("%p %d", arg2, arg2);
+	ustack();
+}
+
+slablist$target:::rem_end
+{
+	printf("%p", arg0);
+	ustack();
+}
+
+slablist$target:::sl_dec_elems
+{
+	printf("%p", arg0);
+}
+
+slablist$target:::set_end
+{
+
+	printf("%p %p", arg0, arg1);
+}
+
+slablist$target:::set_end
+/arg1 == 0x702540/
+{
+
+	printf("SET_END %p %p", arg0, arg1);
+}
+*/
 
 /*
-pid$target:libparse.so.1::entry,
-pid$target:libparse.so.1::return,
 pid$target:libgraph.so.1::entry,
 pid$target:libgraph.so.1::return,
 pid$target:libslablist.so.1::entry,
 pid$target:libslablist.so.1::return,
-parse$target:::got_here
+pid$target:libparse.so.1:try_parse:entry,
+pid$target:libparse.so.1:try_parse:return
 {
-	printf("\t%p(%d) %p(%d) %p(%d)\n", arg0, arg0,  arg1, arg1, arg2, arg2);
+	printf("\t%p(%d) %p(%d) %p(%d)\n", arg0, arg0,  arg1, (int)arg1, arg2, arg2);
 }
 */
-
-parse$target::lp_rem_ast_child:got_here
-{
-	printf("%u\n", arg0);
-}
 
 parse$target:::test_*
 /arg0 != 0/
 {
-	printf("ERROR: %d %s\n", arg0, e_test_descr[arg0]);
+	printf("ERROR: %d %s\n", arg0, lp_e_test_descr[arg0]);
 	ustack();
 	exit(0);
 }
