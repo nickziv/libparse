@@ -531,7 +531,7 @@ add_ast_node(lp_ast_t *ast, lp_ast_node_t *ast_node)
 {
 	selem_t ie;
 	ie.sle_p = ast_node;
-	int r = slablist_add(ast->ast_nodes, ie, 0);
+	(void)slablist_add(ast->ast_nodes, ie, 0);
 }
 
 void
@@ -539,7 +539,7 @@ rem_ast_node(lp_ast_t *ast, lp_ast_node_t *ast_node)
 {
 	selem_t ie;
 	ie.sle_p = ast_node;
-	int r = slablist_rem(ast->ast_nodes, ie, 0, NULL);
+	(void)slablist_rem(ast->ast_nodes, ie, 0, NULL);
 }
 
 int
@@ -1127,7 +1127,7 @@ ast_rem_subtree(lp_ast_t *ast)
 	 * that callback, and replace this hackish implementation with that
 	 * one.
 	 */
-	selem_t s_ignored;
+	/*selem_t s_ignored;*/
 	/*slablist_foldr(ast->ast_freelist, destroy_ast_node_fold, s_ignored);*/
 	/*slablist_destroy(ast->ast_freelist, NULL);*/
 	PARSE_REM_SUBTREE_END();
@@ -1792,6 +1792,79 @@ lp_map_pd(lp_ast_t *ast, char *mapnm, char *p, char *d)
 	return (0);
 }
 
+void
+map_neighbors_cb(gelem_t s, gelem_t d, gelem_t w, gelem_t arg)
+{
+	(void)s;
+	(void)w;
+	map_query_arg_t *mqa = arg.ge_p;
+	lp_ast_node_t *v = d.ge_p;
+	mqa->mqa_cb(v, mqa->mqa_arg);
+}
+
+
+void
+lp_map_query(lp_ast_t *a, char *map, lp_ast_node_t *key, lp_map_query_cb_t cb,
+    void *arg)
+{
+	lp_mapping_t find_map;
+	find_map.map_name = map;
+	selem_t sfind_map;
+	sfind_map.sle_p = &find_map;
+	selem_t found;
+	int r = slablist_find(a->ast_mappings, sfind_map, &found);
+	if (r) {
+		return;
+	}
+	lp_mapping_t *mapping = found.sle_p;
+	gelem_t gkey;
+	gkey.ge_p = key;
+
+	map_query_arg_t mqa;
+	bzero(&mqa, sizeof (map_query_arg_t));
+	mqa.mqa_cb = cb;
+	mqa.mqa_arg = arg;
+
+	gelem_t garg;
+	garg.ge_p = &mqa;
+
+	lg_neighbors_arg(mapping->map_graph,gkey, &map_neighbors_cb, garg);
+}
+
+/*
+ * This function returns 0 if `buf` is identical to the contents of `c`, and 1
+ * if not. Note that we assume that any unused trailing bits in `buf` are zero.
+ * For example if you have a 9 bit buffer, we expect that the last 7 bits of
+ * the second byte are all 0.
+ */
+int
+lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
+{
+	size_t an_sz = c->an_off_end - c->an_off_start;
+	if (an_sz != sz) {
+		return (1);
+	}
+	char *copy = lp_mk_buf(an_sz/8);
+	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	int r = bcmp(buf, copy, sz);
+	lp_rm_buf(copy, an_sz/8);
+	return (r);
+}
+
+lp_ast_node_t *
+lp_deref_splitter(lp_ast_node_t *s)
+{
+	if (s == NULL || s->an_last_child == NULL || s->an_type != SPLITTER) {
+		return (NULL);
+	}
+	return (s->an_last_child);
+}
+
+lp_ast_node_t *
+lp_get_root_node(lp_ast_t *a)
+{
+	return (a->ast_start);
+}
 
 /*
  * It seems that a grammar is clonable if it passes a scrub.

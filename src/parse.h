@@ -70,6 +70,7 @@ typedef struct lp_grmr_node lp_grmr_node_t;
 
 typedef void lp_match_cb_t(void *b);
 typedef void lp_tokpr_t(void *b);
+typedef void lp_map_query_cb_t(lp_ast_node_t *v, void *arg);
 
 lp_tok_t *lp_create_tok(lp_grmr_t *g, char *name);
 /* XXX should data-alloc be handled by user, or copied into libparse? */
@@ -103,6 +104,10 @@ void lp_match_token(lp_ast_t *r, uint64_t tokid, lp_tok_t *tok, lp_match_cb_t cb
 void lp_match_grmr_node(lp_ast_t *r, uint64_t id, lp_match_cb_t cb);
 lp_grmr_node_t *lp_init_swap_intr(lp_grmr_t *, char *, char);
 int lp_fini_swap_intr(lp_grmr_t *, lp_grmr_node_t *);
+void lp_map_query(lp_ast_t *, char *, lp_ast_node_t *, lp_map_query_cb_t, void *);
+int lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c);
+lp_ast_node_t *lp_get_root_node(lp_ast_t *);
+lp_ast_node_t *lp_deref_splitter(lp_ast_node_t *);
 typedef void lp_grmr_cb_t(lp_grmr_node_t *);
 typedef void lp_ast_cb_t(lp_grmr_node_t *);
 void lp_walk_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);

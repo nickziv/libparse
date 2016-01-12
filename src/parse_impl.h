@@ -81,6 +81,12 @@ typedef struct lp_mapping {
 	lg_graph_t	*map_graph;
 } lp_mapping_t;
 
+typedef struct map_query_arg {
+	lp_map_query_cb_t	*mqa_cb;
+	void			*mqa_arg;
+	lp_ast_node_t		*mqa_key; /* XXX do we need this? */
+} map_query_arg_t;
+
 typedef struct lp_map_cookie {
 	lp_ast_node_t	*mc_p;
 	lp_ast_node_t	*mc_k;
