@@ -56,10 +56,13 @@ lp_create_tok(lp_grmr_t *g, char *name)
 }
 
 int
-lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
-    char *data)
+lp_add_tok_op_impl(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
+    char *data, char *min, char *max)
 {
 	if (op >= ROP_END) {
+		return (-1);
+	}
+	if ((min != NULL || max != NULL) && data != NULL) {
 		return (-1);
 	}
 	if (t->tok_segs == NULL) {
@@ -67,17 +70,19 @@ lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
 			SL_ORDERED);
 	}
 	tok_seg_t *ts = lp_mk_tok_seg();
-	size_t bytes = (width / 8) + (width % 8);
-	bytes *= elems;
-	/* We used to copy `data`. We now assume that it is constant */
-	/* char *buf = lp_mk_zbuf(bytes); */
 	ts->ts_op = op;
 	ts->ts_width = width;
-	ts->ts_elems = elems;
-	ts->ts_data = data;
+	if (data != NULL) {
+		/* we used to copy `data`. we now assume that it is constant */
+		/* char *buf = lp_mk_zbuf(bytes); */
+		ts->ts_elems = elems;
+		ts->ts_data = data;
+	} else {
+		ts->ts_range_min = min;
+		ts->ts_range_max = max;
+	}
 	selem_t sl_elem;
 	sl_elem.sle_p = ts;
-	/* bcopy(data, buf, bytes); */
 	slablist_add(t->tok_segs, sl_elem, 0);
 	if (PARSE_TEST_TOK_ENABLED()) {
 		int test = lp_test_tok(t);
@@ -88,6 +93,20 @@ lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
 		PARSE_TEST_TOK(test);
 	}
 	return (0);
+}
+
+int
+lp_add_tok_range_op(lp_tok_t *t, tok_op_t op, uint8_t width,
+    char *min, char *max)
+{
+	return (lp_add_tok_op_impl(t, op, width, 0, NULL, min, max));
+}
+
+int
+lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
+    char *data)
+{
+	return (lp_add_tok_op_impl(t, op, width, elems, data, NULL, NULL));
 }
 
 /*
@@ -122,45 +141,50 @@ get_bits(char *c, char *copy, size_t from, size_t to)
 	}
 }
 
-/*
- * Returns num of bits matched. If 0, then nothing was matched.
- */
 int
-has_allof(tok_seg_t *s, char *in, size_t off)
+rangecmp(char *buf, tok_seg_t *s, size_t bytes)
 {
-	size_t w = s->ts_width;
-	//replace elems with bytes
-	char *buf1 = lp_mk_buf(s->ts_elems);
-	char *buf2 = lp_mk_buf(s->ts_elems);
-	get_bits(in, buf1, off, off + s->ts_elems);
-	bcopy(s->ts_data, buf2, s->ts_elems);
-	uint64_t i = 0;
-	uint64_t j = 0;
-	int match = 1;
-	while (i < s->ts_elems) {
-		/*
-		 * We didn't find a matching char, so buf2 doesn't have all of
-		 * what's in buf1.
-		 */
-		if (match != 1) {
-			lp_rm_buf(buf1, s->ts_elems);
-			lp_rm_buf(buf2, s->ts_elems);
-			return (0);
+	char *range_min = s->ts_range_min;
+	char *range_max = s->ts_range_max;
+	size_t i = 0;
+	int gt_min = 0;
+	int lt_min = 0;
+	while (i < bytes) {
+		/* no reason to compare rest of array */
+		if (buf[i] > range_min[i]) {
+			gt_min = 1;
+			break;
 		}
-		match = 0;
-		char c1 = buf1[i];
-		while (j < s->ts_elems) {
-			char c2 = buf2[j];
-			if (c1 == c2) {
-				match = 1;
-			}
-			j++;
+		if (buf[i] < range_min[i]) {
+			lt_min = 1;
+			break;
 		}
 		i++;
 	}
-	lp_rm_buf(buf1, s->ts_elems);
-	lp_rm_buf(buf2, s->ts_elems);
-	return (w * s->ts_elems);
+	int under_range = lt_min && !gt_min;
+	if (under_range) {
+		return (-1);
+	}
+	i = 0;
+	int gt_max = 0;
+	int lt_max = 0;
+	while (i < bytes) {
+		/* no reason to compare rest of array */
+		if (buf[i] < range_max[i]) {
+			lt_max = 1;
+			break;
+		}
+		if (buf[i] > range_min[i]) {
+			gt_max = 1;
+			break;
+		}
+		i++;
+	}
+	int over_range = gt_max && !lt_max;
+	if (over_range) {
+		return (1);
+	}
+	return (0);
 }
 
 int
@@ -173,12 +197,21 @@ has_one_plus(tok_seg_t *s, char *in, size_t bit_off)
 	int c = 0;
 	int consumed = 0;
 	size_t bytes = (w / 8) + (w % 8);
-	do {
-		get_bits(in, buf, off, off + w);
-		c = bcmp(buf, s->ts_data, bytes);
-		off += w;
-		consumed++;
-	} while (c == 0);
+	if (s->ts_data != NULL) {
+		do {
+			get_bits(in, buf, off, off + w);
+			c = bcmp(buf, s->ts_data, bytes);
+			off += w;
+			consumed++;
+		} while (c == 0);
+	} else {
+		do {
+			get_bits(in, buf, off, off + w);
+			c = rangecmp(buf, s, bytes);
+			off += w;
+			consumed++;
+		} while (c == 0);
+	}
 	size_t bits = consumed * w;
 	return (bits);
 }
@@ -191,9 +224,17 @@ has_one(tok_seg_t *s, char *in, size_t bit_off)
 	char buf[32];
 	bzero(buf, 32);
 	get_bits(in, buf, bit_off, bit_off + w);
-	int c = bcmp(buf, s->ts_data, bytes);
-	if (c != 0) {
-		return (0);
+	int c;
+	if (s->ts_data != NULL) {
+		c = bcmp(buf, s->ts_data, bytes);
+		if (c != 0) {
+			return (0);
+		}
+	} else {
+		c = rangecmp(buf, s, bytes);
+		if (c != 0) {
+			return (0);
+		}
 	}
 	return (w);
 }
@@ -210,17 +251,20 @@ has_anyof(tok_seg_t *s, char *in, size_t bit_off)
 	int i = 0;
 	int c = 1;
 	size_t bytes = (w / 8) + (w % 8);
-	while (i < num && c != 0) {
-		get_bits(in, buf, bit_off, bit_off + w);
-		get_bits(s->ts_data, data, i*w, (i*w)+w);
-		/*
-		char b1 = buf[0];
-		char b2 = buf[1];
-		char d1 = data[0];
-		char d2 = data[1];
-		*/
-		c = bcmp(buf, data, bytes);
-		i++;
+	if (s->ts_data != NULL) {
+		while (i < num && c != 0) {
+			get_bits(in, buf, bit_off, bit_off + w);
+			get_bits(s->ts_data, data, i*w, (i*w)+w);
+			c = bcmp(buf, data, bytes);
+			i++;
+		}
+	} else {
+		while (i < num && c != 0) {
+			get_bits(in, buf, bit_off, bit_off + w);
+			get_bits(s->ts_data, data, i*w, (i*w)+w);
+			c = rangecmp(buf, s, bytes);
+			i++;
+		}
 	}
 	if (c != 0) {
 		return (0);
@@ -282,9 +326,6 @@ eval_tok_seg(lp_grmr_t *g, tok_seg_t *s,
 		break;
 	case ROP_ONE_PLUS:
 		c = has_one_plus(s, input, bit_off);
-		break;
-	case ROP_ALLOF:
-		c = has_allof(s, input, bit_off);
 		break;
 	case ROP_ANYOF:
 		c = has_anyof(s, input, bit_off);
@@ -697,37 +738,58 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	return (ret);
 }
 
+typedef struct scrub_arg {
+	lp_grmr_t *sa_grmr;
+	lp_scrub_cb_t *sa_cb;
+} scrub_arg_t;
+
+selem_t
+parent_check_fold(selem_t z, selem_t *e, uint64_t sz)
+{
+	lp_grmr_t *grmr;
+	lp_scrub_cb_t *cb;
+	scrub_arg_t *sa;
+	sa = z.sle_p;
+	grmr = sa->sa_grmr;
+	cb = sa->sa_cb;
+
+	uint64_t i = 0;
+	while (i < sz) {
+		lp_grmr_node_t *g = e[i].sle_p;
+		if (g->gn_type != PARSER && g->gn_kids == 0) {
+			grmr->grmr_scrub_err = -1;
+			cb(SCRUB_NOKIDS, g->gn_name);
+		}
+		i++;
+	}
+	return (z);
+}
+
 /*
- * Scrubs a grammar and reports any error...
+ * Scrubs a grammar and reports any error. The nature of the error is reflected
+ * in the return value. The pointer to the name of the offending grammar node
+ * is saved in `name`.
  */
 int
-lp_scrub_grammar(lp_grmr_t *g)
+lp_scrub_grammar(lp_grmr_t *g, lp_scrub_cb_t cb)
 {
-	(void) g;
-	return (0);
-	/* XXX what are the possible errors */
 	/*
-	 * Two tokens that have the exact same tok.
-	 * It is impossible to have an grmr_node that never expands to a
-	 * token.
-	 *
-	 * OPTIONALLY: Warn or error out when two _different_ grmr_nodes can
-	 * consume/match the same input --- but interpret it differently.
-	 *
-	 * It is impossible to have a grmr_node that is directly or
-	 * inderictly recursive.
-	 *
 	 * Verify that a root grmr_node has been set.
-	 *
-	 * Verify that both grmr_nodes that are bound by a grouper grmr_node
-	 * are "in band".
-	 *	They must be on the same "level" of the heirarchy, they can't
-	 *	span multiple levels (it makes no sense).
-	 *
-	 * Binding grmr_nodes can't share starting or ending grmr_nodes.
-	 *
-	 * Binding grmr_nodes can't repeat, ever.
+	 * Verify that every non-PARSER grammar node has children.
 	 */
+	scrub_arg_t sa;
+	sa.sa_cb = cb;
+	sa.sa_grmr = g;
+	selem_t zero;
+	zero.sle_p = &sa;
+	if (g->grmr_root == NULL) {
+		/* in case we need to get at this err later */
+		g->grmr_scrub_err = SCRUB_NOROOT;
+		cb(SCRUB_NOROOT, NULL);
+		return (-1);
+	}
+	slablist_foldr(g->grmr_gnodes, parent_check_fold, zero);
+	return (g->grmr_scrub_err);
 }
 
 int
@@ -1866,6 +1928,12 @@ lp_get_root_node(lp_ast_t *a)
 	return (a->ast_start);
 }
 
+char *
+lp_get_node_name(lp_ast_node_t *n)
+{
+	return (n->an_gnm);
+}
+
 /*
  * It seems that a grammar is clonable if it passes a scrub.
  *
@@ -1917,14 +1985,14 @@ lp_walk_grmr_bfs(lp_grmr_t *g, lp_grmr_cb_t cb)
 }
 
 void
-lp_walk_ast_dfs(lp_grmr_t *g, lp_ast_cb_t cb)
+lp_walk_ast_dfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_walk_ast_bfs(lp_grmr_t *g, lp_ast_cb_t cb)
+lp_walk_ast_bfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
 {
 	(void)g; (void)cb;
 

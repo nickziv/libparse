@@ -19,6 +19,8 @@ typedef struct tok_seg {
 	uint8_t		ts_width; /* in bits */
 	size_t		ts_elems;
 	char		*ts_data;
+	char		*ts_range_min;
+	char		*ts_range_max;
 } tok_seg_t;
 
 /*
@@ -114,6 +116,7 @@ struct lp_grmr {
 	uint64_t	grmr_refcnt;
 	char		*grmr_name;	/* debug name */
 	char		grmr_fin;	/* bool */
+	int8_t		grmr_scrub_err;
 	lp_tok_ls_t	*grmr_toks;
 	slablist_t	*grmr_gnodes;/* srt ls of all grmr_node-ptrs */
 	lg_graph_t	*grmr_graph;

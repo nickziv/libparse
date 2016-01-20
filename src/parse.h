@@ -14,6 +14,11 @@
 /*
  */
 
+typedef enum scrub_err {
+	SCRUB_NOROOT,
+	SCRUB_NOKIDS
+} scrub_err_t;
+
 typedef enum tok_op {
 	/*
 	 * Following 2 ops match zero, only one, or at least one of the
@@ -29,10 +34,6 @@ typedef enum tok_op {
 	 */
 	ROP_ONE,
 	ROP_ONE_PLUS,
-	/*
-	 * Matches everything in the segment.
-	 */
-	ROP_ALLOF,
 	/*
 	 * Matches anything in the segment in any order.
 	 */
@@ -69,6 +70,7 @@ typedef struct lp_tok lp_tok_t;
 typedef struct lp_grmr_node lp_grmr_node_t;
 
 typedef void lp_match_cb_t(void *b);
+typedef void lp_scrub_cb_t(scrub_err_t err, char *gnm);
 typedef void lp_tokpr_t(void *b);
 typedef void lp_map_query_cb_t(lp_ast_node_t *v, void *arg);
 
@@ -76,6 +78,7 @@ lp_tok_t *lp_create_tok(lp_grmr_t *g, char *name);
 /* XXX should data-alloc be handled by user, or copied into libparse? */
 int lp_add_tok_op(lp_tok_t *r, tok_op_t op, uint8_t width, size_t elems,
     char *data);
+int lp_add_tok_range_op(lp_tok_t *, tok_op_t, uint8_t, char *, char*);
 /* returns id or 0 on failure */
 int lp_add_tok(lp_grmr_t *g, char *nm, lp_tok_t *tok);
 lp_grmr_t *lp_create_grammar(char *name);
@@ -90,7 +93,7 @@ int lp_root_grmr_node(lp_grmr_t *g, char *nm);
 /* useful for making modified/derivative grammars */
 /* TODO implement replace */
 int lp_replace_grmr_node(lp_grmr_t *g, uint64_t gnid, uint64_t swid);
-int lp_scrub_grammar(lp_grmr_t *g);
+int lp_scrub_grammar(lp_grmr_t *g, lp_scrub_cb_t cb);
 lp_ast_t *lp_create_ast();
 void lp_destroy_ast(lp_ast_t *);
 int lp_finalize_grammar(lp_grmr_t *);
@@ -108,12 +111,14 @@ void lp_map_query(lp_ast_t *, char *, lp_ast_node_t *, lp_map_query_cb_t, void *
 int lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c);
 lp_ast_node_t *lp_get_root_node(lp_ast_t *);
 lp_ast_node_t *lp_deref_splitter(lp_ast_node_t *);
-typedef void lp_grmr_cb_t(lp_grmr_node_t *);
-typedef void lp_ast_cb_t(lp_grmr_node_t *);
+char *lp_get_node_name(lp_ast_node_t *);
+typedef void lp_grmr_cb_t(lp_grmr_node_t *, void *);
+typedef void lp_ast_cb_t(lp_ast_node_t *, void *);
 void lp_walk_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);
 void lp_walk_grmr_bfs(lp_grmr_t *, lp_grmr_cb_t);
-void lp_walk_ast_dfs(lp_grmr_t *, lp_ast_cb_t);
-void lp_walk_ast_bfs(lp_grmr_t *, lp_ast_cb_t);
+void lp_walk_ast_dfs(lp_ast_t *, lp_ast_cb_t, void *);
+void lp_walk_ast_bfs(lp_ast_t *, lp_ast_cb_t, void *);
+void lp_walk_ast_nodes(lp_ast_t *, lp_ast_cb_t, void *);
 void lp_dump_grmr(lp_grmr_t *);
 int lp_map_cc(lp_ast_t *, char *mapnm, char *parent, char *kid1, char *kid2);
 int lp_map_pd(lp_ast_t *, char *mapnm, char *parent, char *descendant);
