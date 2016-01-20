@@ -1,8 +1,12 @@
 #include "parse_impl.h"
 #include "parse_provider.h"
 
+/*
+ * Some constants are no longer used. They are written as 'E_UNUSED_N'. Feel
+ * free to take them for new error codes.
+ */
 #define E_AST_CHILD		1
-#define E_ASTN_ID		2
+#define E_UNUSED_1		2
 #define E_ASTN_TYPE		3
 #define E_ASTN_NULL_GNM		4
 #define E_ASTN_OFFSET		5
@@ -103,10 +107,6 @@ lp_test_ast_node(lp_ast_node_t *a)
 	lp_ast_t *ast = a->an_ast;
 	lp_grmr_t *grmr = ast->ast_grmr;
 	uint64_t nodes = slablist_get_elems(ast->ast_nodes);
-
-	if (a->an_id > nodes) {
-		return (E_ASTN_ID);
-	}
 
 	if (a->an_type != SEQUENCER && a->an_type != SPLITTER &&
 	    a->an_type != PARSER) {
@@ -481,7 +481,7 @@ lp_test_tok_seg(tok_seg_t *s)
 		/* TODO does it make sense to specify a zero-width seg? */
 		return (E_TSEG_WIDTH_ZERO);
 	}
-	if (s->ts_data == NULL) {
+	if (s->ts_data == NULL && s->ts_range_min == NULL) {
 		return (E_TSEG_DATA);
 	}
 	return (0);

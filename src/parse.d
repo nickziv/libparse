@@ -1,5 +1,4 @@
 inline int E_AST_CHILD = 1;
-inline int E_ASTN_ID = 2;
 inline int E_ASTN_TYPE = 3;
 inline int E_ASTN_NULL_GNM = 4;
 inline int E_ASTN_OFFSET = 5;
@@ -49,7 +48,6 @@ inline string tok_op[int op] =
 inline string lp_e_test_descr[int err] =
 	err == 0 ? "[ PASS ]" :
 	err == E_AST_CHILD ? "[ BAD AST CHILD ]" :
-	err == E_ASTN_ID ? "[ AST ID TOO BIG ]" :
 	err == E_ASTN_TYPE ? "[ INVALID ASTN TYPE ]" :
 	err == E_ASTN_NULL_GNM ? "[ ASTN NO GNM ]" :
 	err == E_ASTN_OFFSET ? "[ OFF START > OFF END ]" :
