@@ -247,6 +247,24 @@ extern "C" {
 #define	PARSE_NESTING_ENABLED() \
 	__dtraceenabled_parse___nesting(0)
 #endif
+#define	PARSE_NSPLIT_DEC(arg0) \
+	__dtrace_parse___nsplit_dec(arg0)
+#ifndef	__sparc
+#define	PARSE_NSPLIT_DEC_ENABLED() \
+	__dtraceenabled_parse___nsplit_dec()
+#else
+#define	PARSE_NSPLIT_DEC_ENABLED() \
+	__dtraceenabled_parse___nsplit_dec(0)
+#endif
+#define	PARSE_NSPLIT_INC(arg0) \
+	__dtrace_parse___nsplit_inc(arg0)
+#ifndef	__sparc
+#define	PARSE_NSPLIT_INC_ENABLED() \
+	__dtraceenabled_parse___nsplit_inc()
+#else
+#define	PARSE_NSPLIT_INC_ENABLED() \
+	__dtraceenabled_parse___nsplit_inc(0)
+#endif
 #define	PARSE_PARSE() \
 	__dtrace_parse___parse()
 #ifndef	__sparc
@@ -463,6 +481,33 @@ extern "C" {
 #define	PARSE_TRACE_AST_END_ENABLED() \
 	__dtraceenabled_parse___trace_ast_end(0)
 #endif
+#define	PARSE_TRACE_AST_STACK(arg0, arg1) \
+	__dtrace_parse___trace_ast_stack(arg0, arg1)
+#ifndef	__sparc
+#define	PARSE_TRACE_AST_STACK_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack()
+#else
+#define	PARSE_TRACE_AST_STACK_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack(0)
+#endif
+#define	PARSE_TRACE_AST_STACK_BEGIN() \
+	__dtrace_parse___trace_ast_stack_begin()
+#ifndef	__sparc
+#define	PARSE_TRACE_AST_STACK_BEGIN_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack_begin()
+#else
+#define	PARSE_TRACE_AST_STACK_BEGIN_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack_begin(0)
+#endif
+#define	PARSE_TRACE_AST_STACK_END() \
+	__dtrace_parse___trace_ast_stack_end()
+#ifndef	__sparc
+#define	PARSE_TRACE_AST_STACK_END_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack_end()
+#else
+#define	PARSE_TRACE_AST_STACK_END_ENABLED() \
+	__dtraceenabled_parse___trace_ast_stack_end(0)
+#endif
 #define	PARSE_UNMATCHED_BITS(arg0, arg1, arg2, arg3, arg4) \
 	__dtrace_parse___unmatched_bits(arg0, arg1, arg2, arg3, arg4)
 #ifndef	__sparc
@@ -630,6 +675,18 @@ extern int __dtraceenabled_parse___nesting(void);
 #else
 extern int __dtraceenabled_parse___nesting(long);
 #endif
+extern void __dtrace_parse___nsplit_dec(int);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___nsplit_dec(void);
+#else
+extern int __dtraceenabled_parse___nsplit_dec(long);
+#endif
+extern void __dtrace_parse___nsplit_inc(int);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___nsplit_inc(void);
+#else
+extern int __dtraceenabled_parse___nsplit_inc(long);
+#endif
 extern void __dtrace_parse___parse(void);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___parse(void);
@@ -774,6 +831,24 @@ extern int __dtraceenabled_parse___trace_ast_end(void);
 #else
 extern int __dtraceenabled_parse___trace_ast_end(long);
 #endif
+extern void __dtrace_parse___trace_ast_stack(lp_ast_t *, lp_ast_node_t *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___trace_ast_stack(void);
+#else
+extern int __dtraceenabled_parse___trace_ast_stack(long);
+#endif
+extern void __dtrace_parse___trace_ast_stack_begin(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___trace_ast_stack_begin(void);
+#else
+extern int __dtraceenabled_parse___trace_ast_stack_begin(long);
+#endif
+extern void __dtrace_parse___trace_ast_stack_end(void);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___trace_ast_stack_end(void);
+#else
+extern int __dtraceenabled_parse___trace_ast_stack_end(long);
+#endif
 extern void __dtrace_parse___unmatched_bits(int, void *, lp_grmr_node_t *, uint64_t, uint64_t);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___unmatched_bits(void);
@@ -835,6 +910,10 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_MATCHED_BITS_ENABLED() (0)
 #define	PARSE_NESTING(arg0)
 #define	PARSE_NESTING_ENABLED() (0)
+#define	PARSE_NSPLIT_DEC(arg0)
+#define	PARSE_NSPLIT_DEC_ENABLED() (0)
+#define	PARSE_NSPLIT_INC(arg0)
+#define	PARSE_NSPLIT_INC_ENABLED() (0)
 #define	PARSE_PARSE()
 #define	PARSE_PARSE_ENABLED() (0)
 #define	PARSE_REM_SUBTREE_BEGIN()
@@ -883,6 +962,12 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_TRACE_AST_BEGIN_ENABLED() (0)
 #define	PARSE_TRACE_AST_END()
 #define	PARSE_TRACE_AST_END_ENABLED() (0)
+#define	PARSE_TRACE_AST_STACK(arg0, arg1)
+#define	PARSE_TRACE_AST_STACK_ENABLED() (0)
+#define	PARSE_TRACE_AST_STACK_BEGIN()
+#define	PARSE_TRACE_AST_STACK_BEGIN_ENABLED() (0)
+#define	PARSE_TRACE_AST_STACK_END()
+#define	PARSE_TRACE_AST_STACK_END_ENABLED() (0)
 #define	PARSE_UNMATCHED_BITS(arg0, arg1, arg2, arg3, arg4)
 #define	PARSE_UNMATCHED_BITS_ENABLED() (0)
 

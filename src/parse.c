@@ -226,6 +226,10 @@ has_one(tok_seg_t *s, char *in, size_t bit_off)
 	get_bits(in, buf, bit_off, bit_off + w);
 	int c;
 	if (s->ts_data != NULL) {
+		int i = 0;
+		while (i < bytes) {
+			i++;
+		}
 		c = bcmp(buf, s->ts_data, bytes);
 		if (c != 0) {
 			return (0);
@@ -256,6 +260,10 @@ has_anyof(tok_seg_t *s, char *in, size_t bit_off)
 			get_bits(in, buf, bit_off, bit_off + w);
 			get_bits(s->ts_data, data, i*w, (i*w)+w);
 			c = bcmp(buf, data, bytes);
+			int j = 0;
+			while (j < bytes) {
+				j++;
+			}
 			i++;
 		}
 	} else {
@@ -454,12 +462,59 @@ an_bnd(selem_t e, selem_t min, selem_t max)
 	return (0);
 }
 
+void lp_destroy_ast_node(lp_ast_node_t *);
+
+/*
+ * The callback increments or decrements a reference count in the ast-node. The
+ * reference count indicates that the node is present in a some number of
+ * changes plus some number of edges. `inc` indicates if we should increment or
+ * decrement the count.
+ */
+void
+astn_refc_cb(uint8_t inc, gelem_t s, gelem_t d, gelem_t w)
+{
+	(void)w;
+	lp_ast_node_t *sn = s.ge_p;
+	lp_ast_node_t *dn = d.ge_p;
+	if (inc) {
+		sn->an_srefc++;
+		dn->an_srefc++;
+	} else {
+		sn->an_srefc--;
+		dn->an_srefc--;
+	}
+
+	/*
+	 * If the refcount is 0, we destroy the ast nodes. This only takes
+	 * place during a rollback, so this code only affects nodes that are
+	 * part of a snapshot and thus have a splitter for an ancestor.
+	 */
+	lp_ast_node_t *p = NULL;
+	if (!sn->an_srefc) {
+		p = sn->an_parent;
+		if (p->an_type == SPLITTER) {
+			p->an_last_child = NULL;
+			p->an_kids = 0;
+		}
+		lp_destroy_ast_node(sn);
+	}
+	if (!dn->an_srefc) {
+		p = dn->an_parent;
+		if (p->an_type == SPLITTER) {
+			p->an_last_child = NULL;
+			p->an_kids = 0;
+		}
+		lp_destroy_ast_node(dn);
+	}
+}
+
 lp_ast_t *
 lp_create_ast(void)
 {
 	lp_ast_t *r = lp_mk_ast();
 	r->ast_nodes = slablist_create("ast_nodes", an_cmp, an_bnd, SL_SORTED);
 	r->ast_graph = lg_create_wdigraph();
+	lg_snapshot_cb(r->ast_graph, astn_refc_cb);
 	PARSE_CREATE_AST(r);
 	return (r);
 }
@@ -670,8 +725,8 @@ void
 lp_destroy_ast_node(lp_ast_node_t *n)
 {
 	rem_ast_node(n->an_ast, n);
-	lp_rm_ast_node(n);
 	PARSE_DESTROY_AST_NODE(n);
+	lp_rm_ast_node(n);
 }
 
 /*
@@ -811,8 +866,7 @@ selem_t
 parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 {
 	lp_ast_t *ast = z.sle_p;
-	selem_t last = slablist_end(ast->ast_stack);
-	lp_ast_node_t *an = last.sle_p;
+	lp_ast_node_t *an = ast->ast_last_leaf;
 	if (an->an_left != NULL) {
 		an->an_off_start = an->an_left->an_off_end;
 		PARSE_AST_NODE_OFF_START(ast->ast_grmr, an);
@@ -829,7 +883,7 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 	while (i < sz) {
 		tok_seg_t *seg = e[i].sle_p;
 		int matched = eval_tok_seg(ast->ast_grmr, seg, ast->ast_in,
-		    ast->ast_sz, an->an_off_start);
+		    ast->ast_sz, an->an_off_start + total_matched);
 		total_matched += matched;
 		if ((matched == 0 && (seg->ts_op != ROP_ZERO_ONE &&
 		    seg->ts_op != ROP_ZERO_ONE_PLUS &&
@@ -839,7 +893,8 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 		    (seg->ts_op == ROP_NONEOF))) {
 			an->an_state = ANS_FAIL;
 			PARSE_FAIL(an);
-			/* We may have changed the splitter's state due to an
+			/*
+			 * We may have changed the splitter's state due to an
 			 * earlier match. We need to undo that.
 			 */
 			if (an->an_parent->an_type == SPLITTER) {
@@ -864,6 +919,9 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 		}
 	}
 	an->an_off_end = an->an_off_start + (uint32_t)total_matched;
+	if (an->an_ast->ast_max_off < an->an_off_end) {
+		an->an_ast->ast_max_off = an->an_off_end;
+	}
 	PARSE_AST_NODE_OFF_END(ast->ast_grmr, an);
 	if (0 && an->an_off_end == ast->ast_sz) {
 		ast->ast_eoi = 1;
@@ -983,7 +1041,7 @@ lp_rem_ast_child_lite(lp_ast_node_t *p, lp_ast_node_t *c)
  * percolate the failure up 1 level to the parent, unless the parent is a
  * splitter. However, we can't percolate successful matches, since a successful
  * match is all or nothing. In other words we won't know if a node succeeded
- * until we call on_pop on it. Unless the parent in a splitter, in which case
+ * until we call on_pop on it. Unless the parent is a splitter, in which case
  * we percolate the first successfully matched child. However, the splitter
  * success is handled from on_pop() because it directly influences the DFS
  * routine.
@@ -991,9 +1049,7 @@ lp_rem_ast_child_lite(lp_ast_node_t *p, lp_ast_node_t *c)
 void
 ast_pop_astn(lp_ast_t *ast)
 {
-	uint64_t e = slablist_get_elems(ast->ast_stack);
-	selem_t last = slablist_end(ast->ast_stack);
-	lp_ast_node_t *l = last.sle_p;
+	lp_ast_node_t *l = ast->ast_last_leaf;
 	PARSE_AST_POP(l);
 	lp_ast_node_t *p = l->an_parent;
 	if (l->an_state == ANS_FAIL) {
@@ -1004,7 +1060,8 @@ ast_pop_astn(lp_ast_t *ast)
 				PARSE_FAIL(p);
 			}
 		}
-		lp_destroy_ast_node(l);
+		// XXX should probably remove this...
+		// lp_destroy_ast_node(l);
 	}
 	if (l->an_state == ANS_MATCH) {
 		/*
@@ -1015,19 +1072,17 @@ ast_pop_astn(lp_ast_t *ast)
 			PARSE_AST_NODE_OFF_END(ast->ast_grmr, p);
 		}
 	}
-	if (e > 0) {
-		if (l->an_type == SPLITTER) {
-			ast->ast_nsplit--;
-		}
-		slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
+	if (l->an_type == SPLITTER) {
+		ast->ast_nsplit--;
+		PARSE_NSPLIT_DEC(ast->ast_nsplit);
 	}
+	ast->ast_last_leaf = p;
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
 		PARSE_TEST_AST(test);
 	}
 }
 
-void ast_rem_subtree(lp_ast_t *ast);
 /*
  * This function keeps popping ast nodes from the stack until it hits a
  * splitter. It returns 0 if it has something to rewind to, and 1 if not.
@@ -1040,41 +1095,44 @@ ast_rewind(lp_ast_t *ast)
 		PARSE_REWIND_END(1);
 		return (1);
 	}
-	uint64_t e = slablist_get_elems(ast->ast_stack);
-	selem_t last = slablist_end(ast->ast_stack);
-	lp_ast_node_t *l = last.sle_p;
-	/* We are already at the top level slitter */
+	lp_ast_node_t *l = ast->ast_last_leaf;
+	/* We are already at the top level splitter */
 	if (ast->ast_nsplit == 1 && l->an_type == SPLITTER) {
 		PARSE_REWIND_END(0);
 		return (0);
 	}
 
-	while (1) {
+	do {
 		lp_ast_node_t *p = l->an_parent;
-		if (e > 0) {
-			PARSE_AST_POP(l);
-			slablist_rem(ast->ast_stack, ignored, e - 1, NULL);
-			if (l->an_type == SPLITTER) {
-				ast->ast_nsplit--;
-			}
+		PARSE_AST_POP(l);
+		ast->ast_last_leaf = p;
+		if (l->an_type == SPLITTER) {
+			ast->ast_nsplit--;
+			PARSE_NSPLIT_DEC(ast->ast_nsplit);
 		}
 
 		if (p != NULL) {
-			if (p->an_type == SEQUENCER) {
-				p->an_state = ANS_FAIL;
-				PARSE_FAIL(p);
-			} else if (p->an_type == SPLITTER) {
-				ast_rem_subtree(ast);
+			if (p->an_type == SPLITTER) {
+				lg_rollback(ast->ast_graph, p->an_snap);
+				/*
+				 * We snapshot a root-splitter after we connect
+				 * it to a child. This means we have to remove
+				 * its child manually. This is not true for any
+				 * other splitter in the ast graph.
+				 */
+				if (p == ast->ast_start) {
+					lp_rem_ast_child(p, p->an_last_child);
+				}
 			}
 		}
 
-		e = slablist_get_elems(ast->ast_stack);
-		last = slablist_end(ast->ast_stack);
-		l = last.sle_p;
+		l = p;
 		if (l->an_type == SPLITTER) {
 			break;
 		}
-	}
+	} while (l->an_type != SPLITTER);
+
+
 	PARSE_REWIND_END(0);
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
@@ -1127,73 +1185,6 @@ queue_subtree_edge(gelem_t to, gelem_t from, gelem_t ignored)
 	lp_queue_removal(parent, child);
 }
 
-void
-rem_subtree_edge(gelem_t from, gelem_t to, gelem_t weight)
-{
-	(void)weight;
-	lp_ast_node_t *parent = from.ge_p;
-	lp_ast_node_t *child = to.ge_p;
-	lp_rem_ast_child_lite(parent, child);
-	lp_destroy_ast_node(child);
-}
-
-/*
-selem_t
-destroy_ast_node_fold(selem_t z, selem_t *e, uint64_t sz)
-{
-	uint64_t i = 0;
-	while (i < sz) {
-		lp_ast_node_t *n = e[i].sle_p;
-		lp_destroy_ast_node(n);
-		i++;
-	}
-	return (z);
-}
-*/
-
-/*
- * Given an AST node, it will remove all of its descendants. It uses BFS to do
- * this.
- */
-void
-ast_rem_subtree(lp_ast_t *ast)
-{
-	PARSE_REM_SUBTREE_BEGIN();
-	ast->ast_to_remove = lg_create_wdigraph();
-	/*ast->ast_freelist = slablist_create("ast_freelist", an_cmp, an_bnd,
-	    SL_SORTED);*/
-
-	selem_t last = slablist_end(ast->ast_stack);
-	lp_ast_node_t *n = last.sle_p;
-	PARSE_REM_SUBTREE_ROOT(n);
-	gelem_t gn;
-	gelem_t ignored;
-	gn.ge_p = n;
-
-	/*
-	 * This function walks the subtree and queues all of its edges for removal.
-	 */
-	lg_bfs_fold(ast->ast_graph, gn, queue_subtree_edge, NULL, ignored);
-	lg_edges(ast->ast_to_remove, rem_subtree_edge);
-	lg_destroy_graph(ast->ast_to_remove);
-	ast->ast_to_remove = NULL;
-
-	/*
-	 * XXX Ignore this for now, bug may have been fixed.
-	 *
-	 * We use this free list to free the ast nodes from memory. In theory,
-	 * it seems like we should be able to do this as aprt of lg_edges()'s
-	 * rem_subtree_edge() callback. However, that was resulting
-	 * double-frees. This is a hack around the problem. Ultimately, we
-	 * should some day determine if this is actually doable from within
-	 * that callback, and replace this hackish implementation with that
-	 * one.
-	 */
-	/*selem_t s_ignored;*/
-	/*slablist_foldr(ast->ast_freelist, destroy_ast_node_fold, s_ignored);*/
-	/*slablist_destroy(ast->ast_freelist, NULL);*/
-	PARSE_REM_SUBTREE_END();
-}
 
 /*
  * Forward declaration of on_push.
@@ -1236,14 +1227,16 @@ on_pop(gelem_t gn, gelem_t state)
 {
 	lp_ast_t *ast = state.ge_p;
 	lp_grmr_node_t *node = gn.ge_p;
-	selem_t ast_elem = slablist_end(ast->ast_stack);
-	lp_ast_node_t *a_top = ast_elem.sle_p;
+	lp_ast_node_t *a_top = ast->ast_last_leaf;
 	int ret = 0;
 	/*
+	 * XXX TODO update the below paragraph, since we have an implicit
+	 * stack, instead of an explicit one.
+	 *
 	 * We want to update the AST and the stack. Updates to the AST involve
 	 * changing the values of the ast_node_t's members. And updates to the
-	 * stack involve changes to the `ast_stack` member of the AST. How we
-	 * modify the AST depends on what kind of AST node we have popped.
+	 * stack involve changes to the `ast_last_leaf` member of the AST. How
+	 * we modify the AST depends on what kind of AST node we have popped.
 	 * Remember, libgraph calls the pop-callback (i.e. this function), once
 	 * it has popped the grammar node from its internal DFS stack. We
 	 * maintain our own AST node stack, which needs to mirror libgraph's
@@ -1270,7 +1263,7 @@ on_pop(gelem_t gn, gelem_t state)
 	 * of 1 tells the DFS to skip the visit to the next child of the
 	 * parent, and instead to pop again. A return value of 2 tells the DFS
 	 * that we are rewind our stack to the nearest SPLITTER and that it
-	 * should so so as well. If we fail, we return 2. If we succeed, what
+	 * should do so as well. If we fail, we return 2. If we succeed, what
 	 * we return depends on the parent. If the parent is a SEQUENCER, we
 	 * return 0. If it is a SPLITTER we return 1.
 	 *
@@ -1357,20 +1350,17 @@ on_pop(gelem_t gn, gelem_t state)
 void
 ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an)
 {
-	selem_t p;
-	p.sle_p = an;
 	PARSE_AST_PUSH(an);
-	if (ast->ast_stack == NULL) {
-		ast->ast_stack = slablist_create("ast_stack", NULL, NULL,
-		    SL_ORDERED);
+	if (ast->ast_last_leaf == NULL) {
 		ast->ast_start = an;
 	}
+	ast->ast_last_leaf = an;
 	if (an->an_type == SPLITTER) {
 		ast->ast_nsplit++;
+		PARSE_NSPLIT_INC(ast->ast_nsplit);
 	}
 	/* This is the minimum possible value of off_end */
 	an->an_off_end = an->an_off_start;
-	slablist_add(ast->ast_stack, p, 0);
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
 		PARSE_TEST_AST(test);
@@ -1399,26 +1389,9 @@ any_child_matched(lp_ast_node_t *n)
 }
 
 lp_ast_node_t *
-get_last_ast_node(lp_ast_t *ast)
-{
-	uint64_t elems = 0;
-	if (ast->ast_stack != NULL) {
-		elems = slablist_get_elems(ast->ast_stack);
-	}
-	selem_t last;
-	lp_ast_node_t *last_astn = NULL;
-	if (elems > 0) {
-		last = slablist_end(ast->ast_stack);
-		last_astn = last.sle_p;
-		return (last_astn);
-	}
-	return (NULL);
-}
-
-lp_ast_node_t *
 maybe_create_ast_node(lp_ast_t *ast, lp_grmr_node_t *node)
 {
-	lp_ast_node_t *p = get_last_ast_node(ast);
+	lp_ast_node_t *p = ast->ast_last_leaf;
 	/*
 	 * We don't create an AST node if the parent is a matched splitter
 	 * (i.e. 1 of its kids were matched). XXX We also don't create an AST
@@ -1471,6 +1444,21 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	lg_graph_t *ast_graph = p->an_ast->ast_graph;
 	lp_grmr_t *grmr = p->an_ast->ast_grmr;
 	lg_wconnect(ast_graph, glast, next, weight);
+	/*
+	 * We snapshot whenever we add a splitter to a parent. Unless the root
+	 * node itself is a splitter, because it _has_ no parent. For the
+	 * root-case we snapshot when we add a child to the root, unless that
+	 * child is itself a splitter. This will result in the root-snapshot
+	 * taking 1 ast-node worth of space more than a non-root-snapshot, but
+	 * whatever. All this means is that when we rollback to the
+	 * root-splitter, we have to remove its child manually.
+	 */
+	if (p->an_type == SPLITTER && p->an_ast->ast_start == p &&
+	    c->an_type != SPLITTER) {
+		p->an_snap = lg_snapshot(ast_graph);
+	} else if (c->an_type == SPLITTER) {
+		c->an_snap = lg_snapshot(ast_graph);
+	}
 	PARSE_AST_ADD_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
 		PARSE_TRACE_AST_BEGIN();
@@ -1525,6 +1513,7 @@ on_split(gelem_t n)
  * XXX This comment, or something like it probably belongs above the `run`
  * function or in the _impl function.
  */
+
 /*
  * When we push, we check to the type of the node. If the node is a SEQUENCER,
  * we just make a corresponding ast_node, change the state, and leave the
@@ -1551,7 +1540,7 @@ on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 	if (an == NULL) {
 		return (0);
 	}
-	last_astn = get_last_ast_node(ast);
+	last_astn = ast->ast_last_leaf;
 	if (last_astn != NULL) {
 		lp_add_ast_child(last_astn, an);
 	}
@@ -1591,7 +1580,7 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	 * ast_node.  Even the non-leaf grmr_nodes.
 	 */
 	PARSE_RUN_GRMR_BEGIN(g, ast);
-	ast->ast_stack = NULL;
+	ast->ast_last_leaf = NULL;
 	ast->ast_in = in;
 	ast->ast_sz = sz;
 	ast->ast_grmr = g;
@@ -1661,8 +1650,9 @@ mapping_bnd(selem_t a, selem_t min, selem_t max)
 }
 
 void
-map_adjcb(gelem_t from, gelem_t to, gelem_t cookie)
+map_adjcb(gelem_t to, gelem_t from, gelem_t weight, gelem_t cookie)
 {
+	(void)weight;
 	lp_map_cookie_t *c = cookie.ge_p;
 	lp_grmr_node_t *K = c->mc_ms->ms_key;
 	lp_grmr_node_t *V = c->mc_ms->ms_val;
@@ -1913,6 +1903,29 @@ lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
 	return (r);
 }
 
+char *
+lp_get_contents(lp_ast_node_t *c)
+{
+	size_t an_sz = c->an_off_end - c->an_off_start;
+	char *copy = lp_mk_buf(an_sz/8);
+	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	return (copy);
+}
+
+size_t
+lp_get_bitwidth(lp_ast_node_t *c)
+{
+	size_t an_sz = c->an_off_end - c->an_off_start;
+	return (an_sz);
+}
+
+void
+lp_rem_contents(lp_ast_node_t *n, char *c)
+{
+	size_t an_sz = n->an_off_end - n->an_off_start;
+	lp_rm_buf(c, an_sz/8);
+}
+
 lp_ast_node_t *
 lp_deref_splitter(lp_ast_node_t *s)
 {
@@ -1932,6 +1945,12 @@ char *
 lp_get_node_name(lp_ast_node_t *n)
 {
 	return (n->an_gnm);
+}
+
+int
+lp_cmp_name(lp_ast_node_t *an, char *nm)
+{
+	return (strcmp(an->an_gnm, nm));
 }
 
 /*
@@ -1971,29 +1990,148 @@ lp_dump_grmr(lp_grmr_t *g)
 
 
 void
-lp_walk_grmr_dfs(lp_grmr_t *g, lp_grmr_cb_t cb)
+lp_grmr_dfs(lp_grmr_t *g, lp_grmr_cb_t cb)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_walk_grmr_bfs(lp_grmr_t *g, lp_grmr_cb_t cb)
+lp_grmr_bfs(lp_grmr_t *g, lp_grmr_cb_t cb)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_walk_ast_dfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
+lp_ast_dfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
 {
-	(void)g; (void)cb;
+	(void)g; (void)cb; (void)arg;
 
 }
 
-void
-lp_walk_ast_bfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
-{
-	(void)g; (void)cb;
 
+void
+lp_ast_bfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
+{
+	(void)g; (void)cb; (void)arg;
+
+}
+
+typedef struct xfs_fold_cookie {
+	lp_ast_cb_t	*xfs_cb;
+	lp_ast_t	*xfs_ast;
+	void		*xfs_arg;
+} xfs_fold_cookie_t;
+
+int
+dfs_cb(gelem_t agg, gelem_t n, gelem_t *aggp)
+{
+	(void)aggp;
+	xfs_fold_cookie_t *c = agg.ge_p;
+	lp_ast_node_t *an = n.ge_p;
+	c->xfs_cb(an, c->xfs_arg);
+	return (0);
+}
+
+static selem_t
+dfs_fold(selem_t arg, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		xfs_fold_cookie_t *c = arg.sle_p;
+		gelem_t garg;
+		gelem_t n;
+		garg.ge_p = c;
+		n.ge_p = e[i].sle_p;
+		lg_dfs_fold(c->xfs_ast->ast_graph, n, NULL, dfs_cb, garg);
+		i++;
+	}
+	return (arg);
+}
+
+/*
+ * Does DFS starting from each node that has an_gnm `gnm`.
+ */
+void
+lp_ast_dfs_name(lp_ast_t *ast, char *gnm, lp_ast_cb_t cb, void *arg)
+{
+	lp_ast_node_t *an_min = lp_mk_ast_node();
+	lp_ast_node_t *an_max = lp_mk_ast_node();
+	an_min->an_gnm = gnm;
+	an_max->an_gnm = gnm;
+	an_min->an_id = 0;
+	an_max->an_id = UINT64_MAX;
+	selem_t zero;
+	xfs_fold_cookie_t ck;
+	ck.xfs_cb = cb;
+	ck.xfs_arg = arg;
+	ck.xfs_ast = ast;
+	zero.sle_p = &ck;
+
+	selem_t smin;
+	selem_t smax;
+	smin.sle_p = an_min;
+	smax.sle_p = an_max;
+
+	(void)slablist_foldr_range(ast->ast_nodes, dfs_fold, smin, smax, zero);
+	lp_rm_ast_node(an_min);
+	lp_rm_ast_node(an_max);
+}
+
+void
+lp_ast_bfs_name(lp_ast_t *ast, char *name, lp_ast_cb_t cb, void *arg)
+{
+	(void)ast;
+	(void)name;
+	(void)cb;
+	(void)arg;
+}
+
+int
+flatten_cb(gelem_t n, gelem_t arg)
+{
+	lp_flatten_cb_t *cb = arg.ge_p;
+	lp_ast_node_t *an = n.ge_p;
+	int ret = cb(an);
+	return (ret);
+}
+
+selem_t
+flatten_fold(selem_t agg, selem_t *e, size_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		gelem_t node;
+		node.ge_p = e[i].sle_p;
+		lp_ast_node_t *an = node.ge_p;
+		lp_ast_t *ast = an->an_ast;
+		gelem_t arg;
+		arg.ge_p = agg.sle_p;
+		lg_flatten(ast->ast_graph, node, flatten_cb, arg);
+		i++;
+	}
+	return (agg);
+}
+
+void
+lp_flatten_astn(lp_ast_t *ast, char *gnm, lp_flatten_cb_t *cb)
+{
+	lp_ast_node_t *an_min = lp_mk_ast_node();
+	lp_ast_node_t *an_max = lp_mk_ast_node();
+	an_min->an_gnm = gnm;
+	an_max->an_gnm = gnm;
+	an_min->an_id = 0;
+	an_max->an_id = UINT64_MAX;
+	selem_t zero;
+	zero.sle_p = cb;
+
+	selem_t smin;
+	selem_t smax;
+	smin.sle_p = an_min;
+	smax.sle_p = an_max;
+
+	(void)slablist_foldr_range(ast->ast_nodes, flatten_fold, smin, smax, zero);
+	lp_rm_ast_node(an_min);
+	lp_rm_ast_node(an_max);
 }

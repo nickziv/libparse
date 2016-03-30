@@ -88,7 +88,6 @@ typedef enum regex_op {
 	TWO
 } regex_op_t;
 
-typedef uintptr_t slablist_t;
 typedef uintptr_t lg_graph_t;
 typedef uintptr_t lp_tok_ls_t;
 typedef uintptr_t slablist_bm_t;
@@ -122,7 +121,6 @@ struct lp_ast {
 	lp_ast_node_t   *ast_start; /* starting ast_node */
 	lg_graph_t      *ast_graph; /* the abstract syntax tree */
 	slablist_t      *ast_nodes; /* index of ast_nodes */
-	slablist_t      *ast_rem_q;
 	lp_grmr_t       *ast_grmr;
 	void            *ast_in;
 	size_t          ast_sz;
@@ -159,10 +157,11 @@ typedef enum ast_node_st {
 	ANS_MATCH_PART
 } ast_node_st_t;
 
-
 struct lp_ast_node {
 	uint64_t        an_id; /* unique id */
 	n_type_t        an_type;
+	uint64_t        an_snap; /* for splitters only */
+	uint64_t        an_srefc;
 	char            *an_gnm; /* grmr_node id */
 	lp_ast_t        *an_ast;
 	uint32_t        an_kids;
@@ -178,6 +177,7 @@ struct lp_ast_node {
 
 typedef struct an_info {
 	uint64_t	ani_id;
+	uintptr_t	ani_gnm_ptr;
 	string		ani_gnm;
 	uint32_t	ani_type;
 	uint32_t	ani_kids;
@@ -196,6 +196,10 @@ translator an_info_t < lp_ast_node_t *a >
 {
 	ani_id = *(uint64_t *)copyin((uintptr_t)&a->an_id,
 			sizeof (a->an_id));
+
+	ani_gnm_ptr = *(uintptr_t *)copyin(
+			(uintptr_t)&a->an_gnm,
+			sizeof (a->an_gnm));
 
 	ani_gnm = copyinstr(*(uintptr_t *)
 			copyin(
@@ -288,10 +292,12 @@ translator grmrinfo_t < lp_grmr_t *g >
 
 
 typedef struct astinfo {
-	int	asti_fin;
-	void	*asti_in;
-	size_t	asti_sz;
-	int	asti_matched;
+	int		asti_fin;
+	void		*asti_in;
+	size_t		asti_sz;
+	uint32_t 	asti_nsplit;
+	int		asti_matched;
+	uintptr_t	asti_stack;
 } astinfo_t;
 
 #pragma D binding "1.6.1" translator
@@ -303,6 +309,10 @@ translator astinfo_t < lp_ast_t *a >
 			sizeof (a->ast_in));
 	asti_sz = *(size_t *)copyin((uintptr_t)&a->ast_sz,
 			sizeof (a->ast_sz));
+	asti_nsplit = *(uint32_t*)copyin((uint32_t)&a->ast_nsplit,
+			sizeof (a->ast_nsplit));
 	asti_matched = *(int *)copyin((uintptr_t)&a->ast_matched,
 			sizeof (a->ast_matched));
+	asti_stack = *(uintptr_t *)copyin((uintptr_t)&a->ast_stack,
+			sizeof (a->ast_stack));
 };

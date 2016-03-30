@@ -56,6 +56,8 @@ typedef struct lp_ast_node lp_ast_node_t;
 struct lp_ast_node {
 	uint64_t	an_id; /* unique id */
 	n_type_t	an_type;
+	uint64_t	an_snap; /* for splitters only */
+	uint64_t	an_srefc;
 	char		*an_gnm; /* grmr_node id */
 	lp_ast_t	*an_ast;
 	uint32_t	an_kids;
@@ -150,7 +152,6 @@ struct lp_ast {
 	lp_ast_node_t	*ast_start; /* starting ast_node */
 	lg_graph_t	*ast_graph; /* the abstract syntax tree */
 	slablist_t	*ast_nodes; /* index of ast_nodes, by name */
-	//slablist_t	*ast_freelist; /* used when removing subtrees */
 	lp_grmr_t	*ast_grmr;
 	void		*ast_in;
 	size_t		ast_sz;
@@ -158,7 +159,8 @@ struct lp_ast {
 	int		ast_eoi; /* end of input */
 	int		ast_bail; /* tell DFS to bail */
 	uint32_t	ast_nsplit; /* splitters pushed to stack */
-	slablist_t	*ast_stack;
+	uint32_t	ast_max_off;
+	lp_ast_node_t	*ast_last_leaf;
 	lg_graph_t	*ast_to_remove;
 	slablist_t	*ast_mappings;
 };

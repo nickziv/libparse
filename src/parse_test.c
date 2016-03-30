@@ -106,7 +106,6 @@ lp_test_ast_node(lp_ast_node_t *a)
 {
 	lp_ast_t *ast = a->an_ast;
 	lp_grmr_t *grmr = ast->ast_grmr;
-	uint64_t nodes = slablist_get_elems(ast->ast_nodes);
 
 	if (a->an_type != SEQUENCER && a->an_type != SPLITTER &&
 	    a->an_type != PARSER) {
@@ -246,20 +245,6 @@ lp_test_grmr(lp_grmr_t *g)
 	return (0);
 }
 
-selem_t
-count_splitters(selem_t agg, selem_t *e, uint64_t sz)
-{
-	uint64_t i = 0;
-	while (i < sz) {
-		lp_ast_node_t *n = e[i].sle_p;
-		if (n->an_type == SPLITTER) {
-			agg.sle_u++;
-		}
-		i++;
-	}
-	return (agg);
-}
-
 static int test_ast_graph_failed;
 static lp_ast_node_t *test_ast_graph_from;
 static lp_ast_node_t *test_ast_graph_to;
@@ -373,42 +358,11 @@ count_astns(selem_t z, selem_t *e, uint64_t c)
 	return (z);
 }
 
-selem_t
-detect_dups(selem_t z, selem_t *e, uint64_t sz)
-{
-	uint64_t i = 0;
-	int *dups_detected = z.sle_p;
-	while (i < sz) {
-		astn_count_t *a = e[i].sle_p;
-		if (a->astnc_count > 1) {
-			*dups_detected++;
-		}
-		i++;
-	}
-	return (z);
-}
-
 void
 free_astnc(selem_t e)
 {
 	astn_count_t *a = e.sle_p;
 	lp_rm_buf(a, sizeof (astn_count_t));
-}
-
-int
-lp_test_stack_dups(slablist_t *stack, slablist_t *dups)
-{
-	selem_t zero;
-	zero.sle_p = dups;
-	int dups_detected = 0;
-	slablist_foldr(stack, count_astns, zero);
-	zero.sle_p = &dups_detected;
-	slablist_foldr(dups, detect_dups, zero);
-	slablist_destroy(dups, free_astnc);
-	if (dups_detected > 0) {
-		return (E_AST_STACK_DUPS);
-	}
-	return (0);
 }
 
 /*
@@ -425,20 +379,20 @@ lp_test_ast(lp_ast_t *ast)
 	if (ast->ast_sz == NULL) {
 		return (E_AST_ZERO_SIZE_INPUT);
 	}
-	if (ast->ast_stack != NULL) {
-		selem_t count = slablist_foldr(ast->ast_stack, count_splitters,
-		    zero);
-		if (count.sle_u > ast->ast_nsplit) {
+	if (ast->ast_last_leaf != NULL) {
+		uint32_t count = 0;
+		lp_ast_node_t *l = ast->ast_last_leaf;
+		while (l != NULL) {
+			if (l->an_type == SPLITTER) {
+				count++;
+			}
+			l = l->an_parent;
+		}
+		if (count > ast->ast_nsplit) {
 			return (E_AST_NSPLIT_TOO_SMALL);
 		}
-		if (count.sle_u < ast->ast_nsplit) {
+		if (count < ast->ast_nsplit) {
 			return (E_AST_NSPLIT_TOO_BIG);
-		}
-		slablist_t *dups = slablist_create("ast_stack_dup_test",
-				astnc_cmp, astnc_bnd, SL_SORTED);
-		int r = lp_test_stack_dups(ast->ast_stack, dups);
-		if (r) {
-			return (r);
 		}
 	}
 	if (ast->ast_graph != NULL) {
