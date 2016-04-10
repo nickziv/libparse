@@ -21,6 +21,7 @@ typedef struct tok_seg {
 	char		*ts_data;
 	char		*ts_range_min;
 	char		*ts_range_max;
+	range_flag_t	ts_range_flag;
 } tok_seg_t;
 
 /*

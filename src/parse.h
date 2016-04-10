@@ -49,6 +49,12 @@ typedef enum tok_op {
 	ROP_END /* internally used */
 } tok_op_t;
 
+typedef enum range_flag {
+	RF_NA,
+	RF_DISCONT,
+	RF_CONT
+} range_flag_t;
+
 typedef enum n_type {
 	/*
 	 * Indicates that the children should be tried in sequence.
@@ -78,7 +84,8 @@ lp_tok_t *lp_create_tok(lp_grmr_t *g, char *name);
 /* XXX should data-alloc be handled by user, or copied into libparse? */
 int lp_add_tok_op(lp_tok_t *r, tok_op_t op, uint8_t width, size_t elems,
     char *data);
-int lp_add_tok_range_op(lp_tok_t *, tok_op_t, uint8_t, char *, char*);
+int lp_add_tok_range_op(lp_tok_t *, tok_op_t, uint8_t, char *, char *,
+    range_flag_t);
 /* returns id or 0 on failure */
 int lp_add_tok(lp_grmr_t *g, char *nm, lp_tok_t *tok);
 lp_grmr_t *lp_create_grammar(char *name);
@@ -110,6 +117,7 @@ int lp_fini_swap_intr(lp_grmr_t *, lp_grmr_node_t *);
 void lp_map_query(lp_ast_t *, char *, lp_ast_node_t *, lp_map_query_cb_t, void *);
 int lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c);
 char *lp_get_contents(lp_ast_node_t *);
+void lp_copy_contents(lp_ast_node_t *, char *);
 size_t lp_get_bitwidth(lp_ast_node_t *);
 void lp_rem_contents(lp_ast_node_t *, char *);
 int lp_cmp_name(lp_ast_node_t *, char *);
@@ -119,11 +127,14 @@ char *lp_get_node_name(lp_ast_node_t *);
 typedef void lp_grmr_cb_t(lp_grmr_node_t *, void *);
 typedef void lp_ast_cb_t(lp_ast_node_t *, void *);
 typedef int lp_flatten_cb_t(lp_ast_node_t *);
+void lp_flatten_astn(lp_ast_t *, char *, lp_flatten_cb_t *cb);
 void lp_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);
 void lp_grmr_bfs(lp_grmr_t *, lp_grmr_cb_t);
 void lp_ast_dfs(lp_ast_t *, lp_ast_cb_t, void *);
+void lp_ast_dfs_name(lp_ast_t *, char *, lp_ast_cb_t, void *);
 void lp_ast_bfs(lp_ast_t *, lp_ast_cb_t, void *);
 void lp_ast_nodes(lp_ast_t *, lp_ast_cb_t, void *);
 void lp_dump_grmr(lp_grmr_t *);
 int lp_map_cc(lp_ast_t *, char *mapnm, char *parent, char *kid1, char *kid2);
 int lp_map_pd(lp_ast_t *, char *mapnm, char *parent, char *descendant);
+void lp_get_bits(char *, char *, size_t, size_t);

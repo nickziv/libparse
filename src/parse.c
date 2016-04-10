@@ -57,7 +57,7 @@ lp_create_tok(lp_grmr_t *g, char *name)
 
 int
 lp_add_tok_op_impl(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
-    char *data, char *min, char *max)
+    char *data, char *min, char *max, range_flag_t rf)
 {
 	if (op >= ROP_END) {
 		return (-1);
@@ -80,6 +80,7 @@ lp_add_tok_op_impl(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
 	} else {
 		ts->ts_range_min = min;
 		ts->ts_range_max = max;
+		ts->ts_range_flag = rf;
 	}
 	selem_t sl_elem;
 	sl_elem.sle_p = ts;
@@ -97,16 +98,17 @@ lp_add_tok_op_impl(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
 
 int
 lp_add_tok_range_op(lp_tok_t *t, tok_op_t op, uint8_t width,
-    char *min, char *max)
+    char *min, char *max, range_flag_t flag)
 {
-	return (lp_add_tok_op_impl(t, op, width, 0, NULL, min, max));
+	return (lp_add_tok_op_impl(t, op, width, 0, NULL, min, max, flag));
 }
 
 int
 lp_add_tok_op(lp_tok_t *t, tok_op_t op, uint8_t width, size_t elems,
     char *data)
 {
-	return (lp_add_tok_op_impl(t, op, width, elems, data, NULL, NULL));
+	return (lp_add_tok_op_impl(t, op, width, elems, data, NULL, NULL,
+	    RF_NA));
 }
 
 /*
@@ -141,6 +143,27 @@ get_bits(char *c, char *copy, size_t from, size_t to)
 	}
 }
 
+/*
+ * We make `get_bits` available to consumers.
+ */
+void
+lp_get_bits(char *c, char *copy, size_t f, size_t t)
+{
+	get_bits(c, copy, f, t);
+}
+
+/*
+ * This function determines if buf is in the range specified in the tok_seg. If
+ * the buf is not in range, it returns non-zero. If it is in range, it will
+ * return zero if ts_range_flag is set to RF_CONT. If the flag is set to
+ * RF_DISCONT, it will make sure that buf isn't in one of the inferred gaps in
+ * the range.
+ *
+ * Say we created a segment with the following min and max pair: 010, 111. If
+ * the flag RF_CONT was set, we infer that the middle bit is always 1. This
+ * means that even though 100 is in the continuous range, it is not in the
+ * discontinuous range.
+ */
 int
 rangecmp(char *buf, tok_seg_t *s, size_t bytes)
 {
@@ -174,7 +197,7 @@ rangecmp(char *buf, tok_seg_t *s, size_t bytes)
 			lt_max = 1;
 			break;
 		}
-		if (buf[i] > range_min[i]) {
+		if (buf[i] > range_max[i]) {
 			gt_max = 1;
 			break;
 		}
@@ -183,6 +206,32 @@ rangecmp(char *buf, tok_seg_t *s, size_t bytes)
 	int over_range = gt_max && !lt_max;
 	if (over_range) {
 		return (1);
+	}
+	if (s->ts_range_flag == RF_DISCONT) {
+		i = 0;
+		while (i < bytes) {
+			char bitspec = range_max[i] ^ range_min[i];
+			char rmin  = range_min[i];
+			char rmin_bit;
+			char buf_bit;
+			char any;
+			int j = 0;
+			while (j < 8) {
+				any = 0;
+				get_bits(&bitspec, &any, j, j);
+				if (!any) {
+					rmin_bit = 0;
+					buf_bit = 0;
+					get_bits(&rmin, &rmin_bit, j, j);
+					get_bits(&buf[i], &buf_bit, j, j);
+					if (rmin_bit != buf_bit) {
+						return (1);
+					}
+				}
+				j++;
+			}
+			i++;
+		}
 	}
 	return (0);
 }
@@ -1903,12 +1952,19 @@ lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
 	return (r);
 }
 
+void
+lp_copy_contents(lp_ast_node_t *c, char *copy)
+{
+	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+}
+
 char *
 lp_get_contents(lp_ast_node_t *c)
 {
 	size_t an_sz = c->an_off_end - c->an_off_start;
-	char *copy = lp_mk_buf(an_sz/8);
+	char *copy = lp_mk_buf((an_sz / 8) + 1);
 	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	copy[(an_sz / 8)] = 0;
 	return (copy);
 }
 
@@ -1923,7 +1979,7 @@ void
 lp_rem_contents(lp_ast_node_t *n, char *c)
 {
 	size_t an_sz = n->an_off_end - n->an_off_start;
-	lp_rm_buf(c, an_sz/8);
+	lp_rm_buf(c, (an_sz / 8) + 1);
 }
 
 lp_ast_node_t *
@@ -2097,7 +2153,7 @@ flatten_cb(gelem_t n, gelem_t arg)
 	return (ret);
 }
 
-selem_t
+static selem_t
 flatten_fold(selem_t agg, selem_t *e, size_t sz)
 {
 	uint64_t i = 0;
