@@ -74,6 +74,7 @@ typedef struct lp_ast lp_ast_t;
 typedef struct lp_ast_node lp_ast_node_t;
 typedef struct lp_tok lp_tok_t;
 typedef struct lp_grmr_node lp_grmr_node_t;
+typedef struct lp_reactor lp_reactor_t;
 
 typedef void lp_match_cb_t(void *b);
 typedef void lp_scrub_cb_t(scrub_err_t err, char *gnm);
@@ -86,9 +87,8 @@ int lp_add_tok_op(lp_tok_t *r, tok_op_t op, uint8_t width, size_t elems,
     char *data);
 int lp_add_tok_range_op(lp_tok_t *, tok_op_t, uint8_t, char *, char *,
     range_flag_t);
-/* returns id or 0 on failure */
-int lp_add_tok(lp_grmr_t *g, char *nm, lp_tok_t *tok);
 lp_grmr_t *lp_create_grammar(char *name);
+char *lp_grammar_name(lp_grmr_t *);
 void lp_destroy_grammar(lp_grmr_t *);
 int lp_create_grmr_node(lp_grmr_t *g, char *name, char *tok, n_type_t ntype);
 //void lp_add_edge(lp_grmr_t *g, uint64_t from, uint64_t to);
@@ -108,6 +108,7 @@ int lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz);
 
 void lp_finish_run(lp_ast_t *ast);
 lp_grmr_t *lp_clone_grammar(char *nm, lp_grmr_t *g);
+lp_ast_t *lp_clone_ast(lp_ast_t *ast);
 /* it will find tokens that match expr foo and have id T */
 void lp_match_token(lp_ast_t *r, uint64_t tokid, lp_tok_t *tok, lp_match_cb_t cb);
 /* find intrators that match the id, and execute callback on them */
@@ -125,16 +126,37 @@ lp_ast_node_t *lp_get_root_node(lp_ast_t *);
 lp_ast_node_t *lp_deref_splitter(lp_ast_node_t *);
 char *lp_get_node_name(lp_ast_node_t *);
 typedef void lp_grmr_cb_t(lp_grmr_node_t *, void *);
-typedef void lp_ast_cb_t(lp_ast_node_t *, void *);
+typedef int lp_ast_cb_t(lp_ast_node_t *, void *);
+typedef int lp_ast_rct_cb_t(lp_reactor_t *, lp_ast_t *, lp_ast_node_t *, uint64_t);
 typedef int lp_flatten_cb_t(lp_ast_node_t *);
 void lp_flatten_astn(lp_ast_t *, char *, lp_flatten_cb_t *cb);
-void lp_grmr_dfs(lp_grmr_t *, lp_grmr_cb_t);
-void lp_grmr_bfs(lp_grmr_t *, lp_grmr_cb_t);
-void lp_ast_dfs(lp_ast_t *, lp_ast_cb_t, void *);
+void lp_grmr_dfs(lp_grmr_t *, char *, lp_grmr_cb_t);
+void lp_grmr_bfs(lp_grmr_t *, char *, lp_grmr_cb_t);
+void lp_ast_dfs(lp_ast_t *, lp_ast_node_t *, lp_ast_cb_t, void *);
 void lp_ast_dfs_name(lp_ast_t *, char *, lp_ast_cb_t, void *);
+void lp_ast_update_links(lp_ast_t *);
+lp_ast_node_t *lp_ast_node_next(lp_ast_node_t *);
+lp_ast_node_t *lp_ast_node_prev(lp_ast_node_t *);
+lp_ast_node_t *lp_ast_node_parent(lp_ast_node_t *);
+lp_ast_node_t *lp_ast_node_last_child(lp_ast_node_t *);
+lp_reactor_t *lp_create_reactor(lp_ast_t *);
+lp_grmr_t *lp_ast_grmr(lp_ast_t *a);
+int lp_ast_on(lp_reactor_t *, char *, lp_ast_rct_cb_t *);
+void lp_ast_react_dfs_name(lp_reactor_t *rctr, char *nm);
+void lp_reactor_push(lp_reactor_t *rcts, void *);
+void *lp_reactor_popr(lp_reactor_t *rcts);
+void *lp_reactor_popl(lp_reactor_t *rcts);
+void *lp_reactor_first(lp_reactor_t *rcts);
+void *lp_reactor_last(lp_reactor_t *rcts);
+void *lp_reactor_next(lp_reactor_t *rcts);
+void *lp_reactor_prev(lp_reactor_t *rcts);
 void lp_ast_bfs(lp_ast_t *, lp_ast_cb_t, void *);
 void lp_ast_nodes(lp_ast_t *, lp_ast_cb_t, void *);
 void lp_dump_grmr(lp_grmr_t *);
+void lp_dump_ast(lp_ast_t *);
+void lp_dump_gnodes(lp_grmr_t *);
 int lp_map_cc(lp_ast_t *, char *mapnm, char *parent, char *kid1, char *kid2);
 int lp_map_pd(lp_ast_t *, char *mapnm, char *parent, char *descendant);
 void lp_get_bits(char *, char *, size_t, size_t);
+int lp_cmp_grmr(lp_grmr_t *g1, lp_grmr_t *g2, char **gnp1, char **gnp2);
+int lp_cmp_ast(lp_ast_t *g1, lp_ast_t *g2);

@@ -41,6 +41,8 @@
 #define E_ASTN_INDEX_DIFF2SMALL	36
 #define	E_AST_GRAPH_WEIGHTS	37
 #define	E_AST_STACK_DUPS	38
+#define	E_AST_REF		39
+#define	E_AST_REF_DIFF		40
 
 static selem_t ignored;
 
@@ -75,8 +77,17 @@ lp_test_child_cb(gelem_t from, gelem_t to, gelem_t weight)
 int
 lp_test_add_child(lp_ast_node_t *p, lp_ast_node_t *c)
 {
+	if (p->an_ast != c->an_ast) {
+		return (E_AST_REF_DIFF);
+	}
 	lp_ast_t *ast = p->an_ast;
 	lp_grmr_t *grmr = ast->ast_grmr;
+	PARSE_GOT_HERE(p);
+	PARSE_GOT_HERE(c);
+	PARSE_GOT_HERE(p->an_ast);
+	PARSE_GOT_HERE(c->an_ast);
+	//PARSE_GOT_HERE(ast);
+	//PARSE_GOT_HERE(grmr);
 	lg_graph_t *g = grmr->grmr_graph;
 	kid = c;
 	is_kid = 0;
@@ -116,7 +127,7 @@ lp_test_ast_node(lp_ast_node_t *a)
 		return (E_ASTN_NULL_GNM);
 	}
 
-	if (a->an_parent == NULL &&
+	if (a->an_ast->ast_cloning == 0 && a->an_parent == NULL &&
 	    strcmp(a->an_gnm, grmr->grmr_root->gn_name)) {
 		return (E_ASTN_NO_PARENT);
 	}
@@ -365,6 +376,30 @@ free_astnc(selem_t e)
 	lp_rm_buf(a, sizeof (astn_count_t));
 }
 
+typedef struct ast_ref {
+	lp_ast_t	*ar_ast;
+	int		ar_ret;
+} ast_ref_t;
+
+selem_t
+test_ast_ref(selem_t agg, selem_t *e, uint64_t sz)
+{
+	ast_ref_t *ar = agg.sle_p;
+	if (ar->ar_ret) {
+		return (agg);
+	}
+	lp_ast_t *ast = ar->ar_ast;
+	uint64_t i = 0;
+	while (i < sz) {
+		lp_ast_node_t *n = e[i].sle_p;
+		if (n->an_ast != ast) {
+			ar->ar_ret = E_AST_REF;
+		}
+		i++;
+	}
+	return (agg);
+}
+
 /*
  * We sanity check the lp_ast_t struct.
  */
@@ -401,7 +436,12 @@ lp_test_ast(lp_ast_t *ast)
 			return (E_AST_GRAPH_WEIGHTS);
 		}
 	}
-	return (0);
+	ast_ref_t ar;
+	ar.ar_ast = ast;
+	ar.ar_ret = 0;
+	zero.sle_p = ast;
+	slablist_foldr(ast->ast_nodes, test_ast_ref, zero);
+	return (ar.ar_ret);
 }
 
 /*

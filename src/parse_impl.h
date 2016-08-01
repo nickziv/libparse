@@ -102,7 +102,6 @@ typedef struct lp_map_cookie {
 } lp_map_cookie_t;
 
 
-
 typedef struct lp_grmr_node {
 	n_type_t	gn_type;
 	uint16_t	gn_kids;
@@ -150,6 +149,7 @@ struct lp_grmr {
  */
 struct lp_ast {
 	int		ast_fin;
+	int		ast_cloning;
 	lp_ast_node_t	*ast_start; /* starting ast_node */
 	lg_graph_t	*ast_graph; /* the abstract syntax tree */
 	slablist_t	*ast_nodes; /* index of ast_nodes, by name */
@@ -167,18 +167,44 @@ struct lp_ast {
 };
 
 /*
- * Sometimes we want to remove edge from the graph that represents an AST. In
- * order to do this, we essentially have to fold over the slablist of edges.
- * But we can't remove the target edges while we fold, because changing a
- * slablist while a fold is running has undefined results. It's like trying to
- * run on a bridge that's collapsing under your feet. So we have to queue up
- * the edges for removal, and then remove them when the fold finishes.
+ * We use BFS to compare 2 grammars or 2 asts. We record the info from the
+ * first walk in the cookie, and we use this info to verify that the second
+ * walk is identical.
  */
-typedef struct qed_edge {
-	gelem_t		qed_from;
-	gelem_t		qed_to;
-	gelem_t		qed_weight;
-} qed_edge_t;
+typedef struct cmp_cookie {
+	lp_grmr_t	*cmpck_g1;
+	lp_grmr_t	*cmpck_g2;
+	int		cmpck_graph;
+	int		cmpck_walk_mismatch;
+	int		cmpck_type_mismatch;
+	int		cmpck_seg_mismatch;
+	lp_grmr_node_t	*cmpck_type1;
+	lp_grmr_node_t	*cmpck_type2;
+	lp_grmr_node_t	*cmpck_seg1;
+	lp_grmr_node_t	*cmpck_seg2;
+	slablist_bm_t	*cmpck_bm;
+	slablist_t	*cmpck_walk;
+} cmp_cookie_t;
+
+typedef struct cmp_walk_step {
+	char		*cws_from;
+	char		*cws_to;
+	uint64_t	cws_w;
+} cmp_walk_step_t;
+
+typedef struct reaction {
+	char		*rtn_node_name;
+	uint64_t	rtn_touched;
+	lp_ast_rct_cb_t	*rtn_cb;
+} reaction_t;
+
+typedef struct lp_reactor {
+	slablist_t	*rct_name_cb;
+	lp_ast_t	*rct_ast;
+	reaction_t	*rct_cur_cb;
+	slablist_t	*rct_stack;
+	slablist_bm_t	*rct_bm;
+} lp_reactor_t;
 
 /*
  * Memory allocation funcs.
@@ -190,7 +216,7 @@ lp_grmr_t *lp_mk_grmr(void);
 lp_ast_t *lp_mk_ast(void);
 lp_grmr_node_t *lp_mk_grmr_node(void);
 lp_ast_node_t *lp_mk_ast_node(void);
-qed_edge_t *lp_mk_qed_edge(void);
+cmp_walk_step_t *lp_mk_cmp_walk_step(void);
 lp_mapping_t *lp_mk_mapping(void);
 void *lp_mk_buf(size_t);
 void *lp_mk_zbuf(size_t);
@@ -201,7 +227,7 @@ void lp_rm_grmr(lp_grmr_t *);
 void lp_rm_ast(lp_ast_t *);
 void lp_rm_grmr_node(lp_grmr_node_t *);
 void lp_rm_ast_node(lp_ast_node_t *);
-void lp_rm_qed_edge(qed_edge_t *);
+void lp_rm_cmp_walk_step(cmp_walk_step_t *);
 void lp_rm_mapping(lp_mapping_t *);
 void lp_rm_buf(void *, size_t);
 int parse_umem_init(void);

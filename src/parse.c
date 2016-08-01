@@ -143,6 +143,7 @@ get_bits(char *c, char *copy, size_t from, size_t to)
 	}
 }
 
+
 /*
  * We make `get_bits` available to consumers.
  */
@@ -150,6 +151,28 @@ void
 lp_get_bits(char *c, char *copy, size_t f, size_t t)
 {
 	get_bits(c, copy, f, t);
+}
+
+static size_t
+range_sz_discont(char *min, char *max, uint8_t width)
+{
+	int bytes = width / 8;
+	int i = 0;
+	size_t flippables = 0;
+	while (i < bytes) {
+		char tmp = min[i] & max[i];
+		char bit = 0;
+		int j = 0;
+		while (j < 8) {
+			get_bits(&tmp, &bit, j, j);
+			if (bit == 0) {
+				flippables++;
+			}
+			j++;
+		}
+		i++;
+	}
+	return (1 << flippables);
 }
 
 /*
@@ -592,6 +615,12 @@ lp_create_grammar(char *name)
 	return (g);
 }
 
+char *
+lp_grammar_name(lp_grmr_t *g)
+{
+	return (g->grmr_name);
+}
+
 
 void
 lp_destroy_grammar(lp_grmr_t *g)
@@ -972,7 +1001,7 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 		an->an_ast->ast_max_off = an->an_off_end;
 	}
 	PARSE_AST_NODE_OFF_END(ast->ast_grmr, an);
-	if (0 && an->an_off_end == ast->ast_sz) {
+	if (an->an_off_end == ast->ast_sz) {
 		ast->ast_eoi = 1;
 	}
 	if (an->an_state == ANS_MATCH) {
@@ -1456,6 +1485,8 @@ maybe_create_ast_node(lp_ast_t *ast, lp_grmr_node_t *node)
 	return (n);
 }
 
+/* The weight-radix */
+#define WADIX 10000
 void
 lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 {
@@ -1473,8 +1504,8 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	 * node. A splitter can only ever have 1 child. 
 	 */
 	if (p->an_type != SPLITTER) {
-		weight.ge_u = p->an_kids;
-		c->an_index = p->an_kids;
+		weight.ge_u = WADIX * (p->an_kids + 1);
+		c->an_index = weight.ge_u;
 		p->an_kids++;
 		c->an_left = p->an_last_child;
 		if (c->an_left != NULL) {
@@ -1483,8 +1514,8 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 		c->an_parent = p;
 		p->an_last_child = c;
 	} else {
-		weight.ge_u = 0;
-		c->an_index = 0;
+		weight.ge_u = WADIX;
+		c->an_index = WADIX;
 		p->an_kids = 1;
 		c->an_left = NULL;
 		c->an_parent = p;
@@ -1520,6 +1551,20 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 		test = lp_test_ast_node(c);
 		PARSE_TEST_AST_NODE(test);
 	}
+}
+
+/*
+ * This function is intended to allow the user to edit the AST _after_ it has
+ * already been constructed. It is not used while parsing. We can only add
+ * children _to the left of_ an existing ast node. To add a child to the right
+ * of an AST node, you have to call this function on its next neighbor. If it
+ * has no next neighbor, just use the lp_add_ast_child() function above.
+ */
+void
+lp_add_ast_child_left(lp_ast_node_t *n, lp_ast_node_t *l)
+{
+	gelem_t weight;
+	weight.ge_u = n->an_index - 1;
 }
 
 /*
@@ -1578,6 +1623,10 @@ on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 {
 	(void)ignored;
 	lp_ast_t *ast = state.ge_p;
+	if (PARSE_TEST_AST_ENABLED()) {
+		int e = lp_test_ast(ast);
+		PARSE_TEST_AST(e);
+	}
 	if (ast->ast_bail) {
 		return (1);
 	}
@@ -1633,6 +1682,8 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	ast->ast_in = in;
 	ast->ast_sz = sz;
 	ast->ast_grmr = g;
+	PARSE_GOT_HERE(ast);
+	PARSE_GOT_HERE(g);
 	gelem_t root;
 	root.ge_p = g->grmr_root;
 	gelem_t state;
@@ -1646,6 +1697,12 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	/*
 	 * This is here as a filler. What _should_ we return, anyway?
 	 */
+	if (ast->ast_max_off < sz) {
+		printf("MAX_OFF: %u\n", ast->ast_max_off);
+		printf("SZ: %lu\n", sz);
+		printf("EOI: %d\n", ast->ast_eoi);
+		return (-1);
+	}
 	return (0);
 }
 
@@ -2035,7 +2092,7 @@ print_grmr_edge(gelem_t from, gelem_t to, gelem_t weight)
 	lp_grmr_node_t *t = to.ge_p;
 	uint64_t w = weight.ge_u;
 
-	printf("EDGE: %s -> %s [%lu]\n", f->gn_name, t->gn_name, w);
+	printf("EDGE: %s(%d) %lu %s\n", f->gn_name, f->gn_type, w, t->gn_name);
 }
 
 void
@@ -2044,23 +2101,99 @@ lp_dump_grmr(lp_grmr_t *g)
 	lg_edges(g->grmr_graph, print_grmr_edge);
 }
 
+void
+print_ast_edge(gelem_t from, gelem_t to, gelem_t weight)
+{
+	lp_ast_node_t *f = from.ge_p;
+	lp_ast_node_t *t = to.ge_p;
+	uint64_t w = weight.ge_u;
+
+	printf("EDGE: %s -> %s [%lu]\n", f->an_gnm, t->an_gnm, w);
+	if (t->an_parent != f) {
+		if (t->an_parent == NULL) {
+			printf("WARN: Parent of %s is NULL\n", t->an_gnm);
+		} else {
+			printf("WARN: Parent of %s is %s\n", t->an_gnm,
+			    t->an_parent->an_gnm);
+		}
+	}
+}
 
 void
-lp_grmr_dfs(lp_grmr_t *g, lp_grmr_cb_t cb)
+lp_dump_ast(lp_ast_t *ast)
+{
+	lg_edges(ast->ast_graph, print_ast_edge);
+}
+
+char *tok_op_tab[] = {
+	"ROP_ZERO_ONE", "ROP_ZERO_ONE_PLUS",
+	"ROP_ONE", "ROP_ONE_PLUS", "ROP_ANYOF",
+	"ROP_ANYOF_ONE_PLUS", "ROP_ANYOF_ZERO_ONE",
+	"ROP_ANYOF_ZERO_ONE_PLUS", "ROP_NONEOF"
+};
+
+selem_t
+print_tok_seg(selem_t z, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		tok_seg_t *t = e[i].sle_p;
+		printf("\t\tOP: %s\n", tok_op_tab[t->ts_op]);
+		printf("\t\tWD: %u\n", t->ts_width);
+		printf("\t\tEL: %u\n", t->ts_elems);
+		printf("\t\tDA: %p\n", t->ts_data);
+		printf("\t\tMI: %p\n", t->ts_range_min);
+		printf("\t\tMA: %p\n", t->ts_range_max);
+		printf("\t\tFL: %u\n", t->ts_range_flag);
+		i++;
+	}
+	return (z);
+}
+
+selem_t
+print_grmr_node(selem_t z, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	lp_grmr_t *grmr = z.sle_p;
+	while (i < sz) {
+		lp_grmr_node_t *g = e[i].sle_p;
+		printf("GNODE:\n\tTYPE: %d\n\tKIDS: %lu\n", g->gn_type,
+		    g->gn_kids);
+		printf("\tNAME: %s\n\tTOK: %s\n", g->gn_name, g->gn_tok);
+		if (g->gn_tok) {
+			lp_tok_t *tok = find_token(grmr, g->gn_tok);
+			slablist_foldr(tok->tok_segs, print_tok_seg, ignored);
+		}
+		i++;
+	}
+	return (z);
+}
+
+void
+lp_dump_gnodes(lp_grmr_t *g)
+{
+	selem_t grmr;
+	grmr.sle_p = g;
+	slablist_foldr(g->grmr_gnodes, print_grmr_node, grmr);
+}
+
+
+void
+lp_grmr_dfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_grmr_bfs(lp_grmr_t *g, lp_grmr_cb_t cb)
+lp_grmr_bfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_ast_dfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
+lp_ast_dfs(lp_ast_t *g, lp_ast_node_t *s, lp_ast_cb_t cb, void *arg)
 {
 	(void)g; (void)cb; (void)arg;
 
@@ -2068,11 +2201,43 @@ lp_ast_dfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
 
 
 void
-lp_ast_bfs(lp_ast_t *g, lp_ast_cb_t cb, void *arg)
+lp_ast_bfs(lp_ast_t *g, lp_ast_node_t *s, lp_ast_cb_t cb, void *arg)
 {
 	(void)g; (void)cb; (void)arg;
 
 }
+
+void
+ast_adj_upln(gelem_t to, gelem_t from, gelem_t w, gelem_t agg)
+{
+	(void)agg;
+	lp_ast_node_t *p = from.ge_p;
+	lp_ast_node_t *c = to.ge_p;
+	uint32_t index = w.ge_u;
+
+	c->an_parent = p;
+	c->an_index = index;
+	c->an_left = p->an_last_child;
+	c->an_right = NULL;
+	p->an_last_child = c;
+}
+
+int
+ast_bfs_cb(gelem_t agg, gelem_t n, gelem_t *aggp)
+{
+	return (0);
+}
+
+void
+lp_ast_update_links(lp_ast_t *ast)
+{
+	gelem_t ignore;
+	gelem_t start;
+	start.ge_p = ast->ast_start;
+	lg_bfs_fold(ast->ast_graph, start, ast_adj_upln, ast_bfs_cb, ignore);
+
+}
+
 
 typedef struct xfs_fold_cookie {
 	lp_ast_cb_t	*xfs_cb;
@@ -2086,8 +2251,18 @@ dfs_cb(gelem_t agg, gelem_t n, gelem_t *aggp)
 	(void)aggp;
 	xfs_fold_cookie_t *c = agg.ge_p;
 	lp_ast_node_t *an = n.ge_p;
-	c->xfs_cb(an, c->xfs_arg);
-	return (0);
+	int r = c->xfs_cb(an, c->xfs_arg);
+	return (r);
+}
+
+int
+bfs_cb(gelem_t agg, gelem_t n, gelem_t *aggp)
+{
+	(void)aggp;
+	xfs_fold_cookie_t *c = agg.ge_p;
+	lp_ast_node_t *an = n.ge_p;
+	int r = c->xfs_cb(an, c->xfs_arg);
+	return (r);
 }
 
 static selem_t
@@ -2101,6 +2276,22 @@ dfs_fold(selem_t arg, selem_t *e, uint64_t sz)
 		garg.ge_p = c;
 		n.ge_p = e[i].sle_p;
 		lg_dfs_fold(c->xfs_ast->ast_graph, n, NULL, dfs_cb, garg);
+		i++;
+	}
+	return (arg);
+}
+
+static selem_t
+bfs_fold(selem_t arg, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		xfs_fold_cookie_t *c = arg.sle_p;
+		gelem_t garg;
+		gelem_t n;
+		garg.ge_p = c;
+		n.ge_p = e[i].sle_p;
+		lg_bfs_fold(c->xfs_ast->ast_graph, n, NULL, bfs_cb, garg);
 		i++;
 	}
 	return (arg);
@@ -2138,10 +2329,27 @@ lp_ast_dfs_name(lp_ast_t *ast, char *gnm, lp_ast_cb_t cb, void *arg)
 void
 lp_ast_bfs_name(lp_ast_t *ast, char *name, lp_ast_cb_t cb, void *arg)
 {
-	(void)ast;
-	(void)name;
-	(void)cb;
-	(void)arg;
+	lp_ast_node_t *an_min = lp_mk_ast_node();
+	lp_ast_node_t *an_max = lp_mk_ast_node();
+	an_min->an_gnm = gnm;
+	an_max->an_gnm = gnm;
+	an_min->an_id = 0;
+	an_max->an_id = UINT64_MAX;
+	selem_t zero;
+	xfs_fold_cookie_t ck;
+	ck.xfs_cb = cb;
+	ck.xfs_arg = arg;
+	ck.xfs_ast = ast;
+	zero.sle_p = &ck;
+
+	selem_t smin;
+	selem_t smax;
+	smin.sle_p = an_min;
+	smax.sle_p = an_max;
+
+	(void)slablist_foldr_range(ast->ast_nodes, bfs_fold, smin, smax, zero);
+	lp_rm_ast_node(an_min);
+	lp_rm_ast_node(an_max);
 }
 
 int
@@ -2190,4 +2398,612 @@ lp_flatten_astn(lp_ast_t *ast, char *gnm, lp_flatten_cb_t *cb)
 	(void)slablist_foldr_range(ast->ast_nodes, flatten_fold, smin, smax, zero);
 	lp_rm_ast_node(an_min);
 	lp_rm_ast_node(an_max);
+}
+
+
+/*
+ * Compare the segments of 2 grammar nodes (from 2 diff grammars) for
+ * superficial equivalence.
+ *
+ * The gnodes are superficially equivalent if they have:
+ *
+ * 	same number of segments
+ * 	same number of elements in each segment[1]
+ * 	same sequence of segments
+ * 	same ROP_* in each segment
+ *
+ * [1]: If 2 segments are identical in every way, but 1 is a range, and 1 is an
+ * array, we compare the size of the range to the number of elements.
+ *
+ * It is possible for 2 PARSER gnodes to be superficially equivelent, and yet
+ * not consume the same input. Eventually, once all of the low hanging fruit
+ * have been picked, we may need to enhance this function to determine if 2
+ * gnodes are 'deeply' equivalent.
+ */
+int
+seg_cmp(lp_grmr_t *gr1, lp_grmr_t *gr2, lp_grmr_node_t *g1, lp_grmr_node_t *g2)
+{
+	lp_tok_t *t1 = find_token(gr1, g1->gn_tok);
+	lp_tok_t *t2 = find_token(gr2, g2->gn_tok);
+	uint64_t t1ns = slablist_get_elems(t1->tok_segs);
+	uint64_t t2ns = slablist_get_elems(t2->tok_segs);
+	if (t1ns != t2ns) {
+		return (1);
+	}
+	/*
+	 * We want to zip over the 2 slablists, using slablist_next().
+	 */
+	uint64_t i = 0;
+	slablist_bm_t *bm1 = slablist_bm_create(t1->tok_segs);
+	slablist_bm_t *bm2 = slablist_bm_create(t2->tok_segs);
+	while (i < t1ns) {
+		selem_t e1;
+		selem_t e2;
+		slablist_next(t1->tok_segs, bm1, &e1);
+		slablist_next(t2->tok_segs, bm2, &e2);
+		tok_seg_t *s1 = e1.sle_p;
+		tok_seg_t *s2 = e2.sle_p;
+		if (s1->ts_op != s2->ts_op || s1->ts_width != s2->ts_width ||
+		    (s1->ts_elems != s2->ts_elems && ((s1->ts_data != NULL &&
+		    s2->ts_range_min != NULL) || (s1->ts_range_min != NULL &&
+		    s2->ts_data != NULL)))) {
+			slablist_bm_destroy(bm1);
+			slablist_bm_destroy(bm2);
+			return (1);
+		} else if (s1->ts_elems != s2->ts_elems) {
+			tok_seg_t *rs;
+			tok_seg_t *ds;
+			if (s1->ts_range_min == NULL &&
+			    s2->ts_range_min == NULL) {
+				return (1);
+			}
+			if (s1->ts_range_min) {
+				rs = s1;
+				ds = s2;
+			} else if (s2->ts_range_min) {
+				rs = s2;
+				ds = s1;
+			}
+			size_t elems = range_sz_discont(rs->ts_range_min,
+			    rs->ts_range_max, rs->ts_width);
+			if (elems != ds->ts_elems) {
+				slablist_bm_destroy(bm1);
+				slablist_bm_destroy(bm2);
+				return (1);
+			}
+		}
+		i++;
+	}
+	slablist_bm_destroy(bm1);
+	slablist_bm_destroy(bm2);
+	return (0);
+}
+
+void
+grmr_cmp_acb(gelem_t to, gelem_t from, gelem_t w, gelem_t cookie)
+{
+	lp_grmr_node_t *fn = from.ge_p;
+	lp_grmr_node_t *tn = to.ge_p;
+	cmp_cookie_t *ck = cookie.ge_p;
+	lp_grmr_t *g1 = ck->cmpck_g1;
+	lp_grmr_t *g2 = ck->cmpck_g2;
+
+	cmp_walk_step_t *c = NULL;
+	selem_t sc;
+	if (ck->cmpck_graph < 1) {
+		cmp_walk_step_t *c = lp_mk_cmp_walk_step();
+		c->cws_from = fn->gn_name;
+		c->cws_to = tn->gn_name;
+		c->cws_w = w.ge_u;
+		sc.sle_p = c;
+		slablist_add(ck->cmpck_walk, sc, 0);
+	} else {
+		selem_t e;
+		selem_t *ep = &e;
+		slablist_next(ck->cmpck_walk, ck->cmpck_bm, ep);
+		c = e.sle_p;
+		if (strcmp(c->cws_from, fn->gn_name) ||
+		    strcmp(c->cws_to, tn->gn_name) || c->cws_w != w.ge_u) {
+			ck->cmpck_walk_mismatch = 1;
+		} else {
+			if (ck->cmpck_type1 != NULL) {
+				return;
+			}
+			lp_grmr_node_t *gf =
+			    find_grmr_node(g1, c->cws_from);
+			lp_grmr_node_t *gt =
+			    find_grmr_node(g1, c->cws_to);
+			if (gf->gn_type != fn->gn_type) {
+				ck->cmpck_type1 = gf;
+				ck->cmpck_type2 = fn;
+				ck->cmpck_type_mismatch = 1;
+				return;
+			} else if (gt->gn_type != tn->gn_type) {
+				ck->cmpck_type1 = gt;
+				ck->cmpck_type2 = tn;
+				ck->cmpck_type_mismatch = 1;
+				return;
+			}
+			if (ck->cmpck_seg1 != NULL) {
+				return;
+			}
+			if (gf->gn_type == PARSER) {
+				int seg_diff = seg_cmp(g1, g2, gf, fn);
+				if (seg_diff) {
+					ck->cmpck_seg_mismatch = 1;
+					ck->cmpck_seg1 = gf;
+					ck->cmpck_seg2 = fn;
+					return;
+				}
+			}
+			if (gt->gn_type == PARSER) {
+				int seg_diff = seg_cmp(g1, g2, gt, tn);
+				if (seg_diff) {
+					ck->cmpck_seg_mismatch = 1;
+					ck->cmpck_seg1 = gt;
+					ck->cmpck_seg2 = tn;
+					return;
+				}
+			}
+		}
+	}
+}
+
+void
+astn_cmp_acb(gelem_t to, gelem_t from, gelem_t w, gelem_t cookie)
+{
+	lp_ast_node_t *fn = from.ge_p;
+	lp_ast_node_t *tn = to.ge_p;
+	cmp_cookie_t *ck = cookie.ge_p;
+
+	cmp_walk_step_t *c = NULL;
+	selem_t sc;
+	if (ck->cmpck_graph < 1) {
+		cmp_walk_step_t *c = lp_mk_cmp_walk_step();
+		c->cws_from = fn->an_gnm;
+		c->cws_to = tn->an_gnm;
+		c->cws_w = w.ge_u;
+		sc.sle_p = c;
+		slablist_add(ck->cmpck_walk, sc, 0);
+	} else {
+		selem_t e;
+		selem_t *ep = &e;
+		slablist_next(ck->cmpck_walk, ck->cmpck_bm, ep);
+		c = e.sle_p;
+		if (strcmp(c->cws_from, fn->an_gnm) ||
+		    strcmp(c->cws_to, tn->an_gnm) || c->cws_w != w.ge_u) {
+			ck->cmpck_walk_mismatch = 1;
+		}
+	}
+}
+
+int
+grmr_cmp_cb(gelem_t agg, gelem_t node, gelem_t *aggp)
+{
+	cmp_cookie_t *ck = agg.ge_p;
+	if (ck->cmpck_walk_mismatch || ck->cmpck_type_mismatch ||
+	    ck->cmpck_seg_mismatch) {
+		return (1);
+	}
+	return (0);
+}
+
+int
+astn_cmp_cb(gelem_t agg, gelem_t node, gelem_t *aggp)
+{
+	cmp_cookie_t *ck = agg.ge_p;
+	if (ck->cmpck_walk_mismatch) {
+		return (1);
+	}
+	return (0);
+}
+
+void
+clean_cws(selem_t e)
+{
+	cmp_walk_step_t *s = e.sle_p;
+	lp_rm_cmp_walk_step(s);
+}
+
+int
+lp_cmp_grmr(lp_grmr_t *g1, lp_grmr_t *g2, char **gnp1, char **gnp2)
+{
+	lg_graph_t *gr1 = g1->grmr_graph;
+	lg_graph_t *gr2 = g2->grmr_graph;
+	uint64_t e1 = lg_nedges(gr1);
+	uint64_t e2 = lg_nedges(gr2);
+	if (e1 != e2) {
+		return (1);
+	}
+
+	uint64_t gn1 = slablist_get_elems(g1->grmr_gnodes);
+	uint64_t gn2 = slablist_get_elems(g2->grmr_gnodes);
+	if (gn1 != gn2) {
+		return (2);
+	}
+	/*
+	 * We do BFS on gr1, and save the parent-child-weight tuples into a
+	 * list. We then do a BFS on gr2, and pass the list as an argument.
+	 * That cb for that BFS will expect to run into all the same tuples in
+	 * the same order.
+	 *
+	 * We need a cookie for each BFS. For BFS 1 it needs to have a
+	 * container that it can append parent-child-weight tuples to.
+	 *
+	 * For BFS2 it needs the same container, and a cursor.
+	 */
+	gelem_t root_gr1;
+	gelem_t root_gr2;
+	root_gr1.ge_p = g1->grmr_root;
+	root_gr2.ge_p = g2->grmr_root;
+
+	cmp_cookie_t ck;
+	bzero(&ck, sizeof (cmp_cookie_t));
+	ck.cmpck_g1 = g1;
+	ck.cmpck_g2 = g2;
+	ck.cmpck_walk = slablist_create("cmpck_walk", NULL, NULL, SL_ORDERED);
+	gelem_t cookie;
+	cookie.ge_p = &ck;
+
+	lg_bfs_fold(gr1, root_gr1, grmr_cmp_acb, grmr_cmp_cb, cookie);
+
+	ck.cmpck_bm = slablist_bm_create();
+	ck.cmpck_graph = 1;
+	lg_bfs_fold(gr2, root_gr2, grmr_cmp_acb, grmr_cmp_cb, cookie);
+	slablist_destroy(ck.cmpck_walk, clean_cws);
+	if (ck.cmpck_walk_mismatch) {
+		return (3);
+	}
+	if (ck.cmpck_type_mismatch) {
+		if (ck.cmpck_type1 == NULL || ck.cmpck_type2 == NULL) {
+			printf("cmpck_type NULL\n");
+			printf("type1 =%p\n", ck.cmpck_type1);
+			printf("type2 =%p\n", ck.cmpck_type2);
+			abort();
+		}
+		*gnp1 = ck.cmpck_type1->gn_name;
+		*gnp2 = ck.cmpck_type2->gn_name;
+		return (4);
+	}
+	if (ck.cmpck_seg_mismatch) {
+		if (ck.cmpck_seg1 == NULL || ck.cmpck_seg2 == NULL) {
+			printf("cmpck_seg NULL\n");
+			abort();
+		}
+		*gnp1 = ck.cmpck_seg1->gn_name;
+		*gnp2 = ck.cmpck_seg2->gn_name;
+		return (5);
+	}
+	return (0);
+}
+
+/*
+ * This function is identical to the above except we operate on ASTs not
+ * grammars.
+ */
+int
+lp_cmp_ast(lp_ast_t *a1, lp_ast_t *a2)
+{
+	lg_graph_t *gr1 = a1->ast_graph;
+	lg_graph_t *gr2 = a2->ast_graph;
+	uint64_t e1 = lg_nedges(gr1);
+	uint64_t e2 = lg_nedges(gr2);
+	if (e1 != e2) {
+		return (1);
+	}
+
+	uint64_t gn1 = slablist_get_elems(a1->ast_nodes);
+	uint64_t gn2 = slablist_get_elems(a2->ast_nodes);
+	if (gn1 != gn2) {
+		return (2);
+	}
+	gelem_t root_gr1;
+	gelem_t root_gr2;
+	root_gr1.ge_p = a1->ast_start;
+	root_gr2.ge_p = a2->ast_start;
+
+	cmp_cookie_t ck;
+	ck.cmpck_graph = 0;
+	ck.cmpck_walk_mismatch = 0;
+	ck.cmpck_walk = slablist_create("cmpck_walk", NULL, NULL, SL_ORDERED);
+	gelem_t cookie;
+	cookie.ge_p = &ck;
+
+	lg_bfs_fold(gr1, root_gr1, astn_cmp_acb, astn_cmp_cb, cookie);
+
+	ck.cmpck_bm = slablist_bm_create();
+	ck.cmpck_graph = 1;
+	lg_bfs_fold(gr2, root_gr2, astn_cmp_acb, astn_cmp_cb, cookie);
+	slablist_destroy(ck.cmpck_walk, clean_cws);
+	if (ck.cmpck_walk_mismatch) {
+		return (3);
+	}
+	return (0);
+}
+
+lp_ast_node_t *
+lp_ast_node_next(lp_ast_node_t *n)
+{
+	return (n->an_right);
+}
+
+lp_ast_node_t *
+lp_ast_node_prev(lp_ast_node_t *n)
+{
+	return (n->an_left);
+}
+
+lp_ast_node_t *
+lp_ast_node_parent(lp_ast_node_t *n)
+{
+	return (n->an_parent);
+}
+
+lp_ast_node_t *
+lp_ast_node_last_child(lp_ast_node_t *n)
+{
+	return (n->an_last_child);
+}
+
+int
+reaction_cmp(selem_t e1, selem_t e2)
+{
+	reaction_t *w1 = e1.sle_p;
+	reaction_t *w2 = e2.sle_p;
+	int c = strcmp(w1->rtn_node_name, w2->rtn_node_name);
+	return (c);
+}
+
+int
+reaction_bnd(selem_t e, selem_t min, selem_t max)
+{
+	int c = reaction_cmp(e, min);
+	if (c < 0) {
+		return (c);
+	}
+	c = reaction_cmp(e, max);
+	if (c > 0) {
+		return (c);
+	}
+	return (0);
+}
+
+lp_reactor_t *
+lp_create_reactor(lp_ast_t *ast)
+{
+	lp_reactor_t *rctr = calloc(1, sizeof (lp_reactor_t));
+	rctr->rct_ast = ast;
+	rctr->rct_name_cb = slablist_create("rct_name_cb", reaction_cmp,
+	    reaction_bnd, SL_SORTED);
+	return (rctr);
+}
+
+
+
+int
+lp_ast_on(lp_reactor_t *rctr, char *nm, lp_ast_rct_cb_t *cb)
+{
+	reaction_t *w = calloc(1, sizeof (reaction_t));
+	w->rtn_node_name = nm;
+	w->rtn_cb = cb;
+	selem_t sw;
+	sw.sle_p = w;
+	int r = slablist_add(rctr->rct_name_cb, sw, 0);
+	if (r != SL_SUCCESS) {
+		free(w);
+	}
+	return (r);
+}
+
+lp_grmr_t *
+lp_ast_grmr(lp_ast_t *ast)
+{
+	return (ast->ast_grmr);
+}
+
+int
+rctr_cb(lp_ast_node_t *n, void *r)
+{
+	lp_reactor_t *rctr = r;
+	reaction_t rn;
+	rn.rtn_node_name = n->an_gnm;
+	selem_t srn;
+	srn.sle_p = &rn;
+	selem_t found;
+	int rf = slablist_find(rctr->rct_name_cb, srn, &found);
+	if (rf != SL_SUCCESS) {
+		return (0);
+	}
+	reaction_t *f = found.sle_p;
+	f->rtn_cb(rctr, rctr->rct_ast, n, f->rtn_touched);
+	f->rtn_touched++;
+	return (0);
+}
+
+selem_t
+reset_touched(selem_t ignored, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		reaction_t *r = e[i].sle_p;
+		r->rtn_touched = 0;
+		i++;
+	}
+	return (ignored);
+}
+
+void
+lp_ast_react_dfs_name(lp_reactor_t *rctr, char *nm)
+{
+	slablist_foldr(rctr->rct_name_cb, reset_touched, ignored);
+	lp_ast_dfs_name(rctr->rct_ast, nm, rctr_cb, (void *)rctr);
+	slablist_foldr(rctr->rct_name_cb, reset_touched, ignored);
+}
+
+void
+lp_reactor_push(lp_reactor_t *rctr, void *data)
+{
+	if (rctr->rct_stack == NULL) {
+		rctr->rct_stack = slablist_create("rctr_stk", NULL, NULL,
+		    SL_ORDERED);
+	}
+	selem_t e;
+	e.sle_p = data;
+	slablist_add(rctr->rct_stack, e, 0);
+}
+
+void *
+lp_reactor_popr(lp_reactor_t *rctr)
+{
+	uint64_t elems = slablist_get_elems(rctr->rct_stack);
+	if (elems) {
+		selem_t r = slablist_end(rctr->rct_stack);
+		slablist_rem(rctr->rct_stack, ignored, elems - 1, NULL);
+		return ((void *)r.sle_p);
+	}
+	return (NULL);
+}
+
+void *
+lp_reactor_popl(lp_reactor_t *rctr)
+{
+	uint64_t elems = slablist_get_elems(rctr->rct_stack);
+	if (elems) {
+		selem_t r = slablist_head(rctr->rct_stack);
+		slablist_rem(rctr->rct_stack, ignored, 0, NULL);
+		return ((void *)r.sle_p);
+	}
+	return (NULL);
+}
+
+/* Returns first elem and sets bookmark to point to it */
+void *
+lp_reactor_first(lp_reactor_t *rctr)
+{
+	if (rctr->rct_stack != NULL && rctr->rct_bm != NULL) {
+		slablist_bm_destroy(rctr->rct_bm);
+	}
+	rctr->rct_bm = slablist_bm_create(rctr->rct_stack);
+	selem_t r;
+	slablist_next(rctr->rct_stack, rctr->rct_bm, &r);
+	return ((void *)r.sle_p);
+}
+
+/* Same as above but for last elem */
+void *
+lp_reactor_last(lp_reactor_t *rctr)
+{
+	if (rctr->rct_stack != NULL && rctr->rct_bm != NULL) {
+		slablist_bm_destroy(rctr->rct_bm);
+	}
+	rctr->rct_bm = slablist_bm_create(rctr->rct_stack);
+	selem_t r;
+	slablist_prev(rctr->rct_stack, rctr->rct_bm, &r);
+	return ((void *)r.sle_p);
+}
+
+/* Moves bookmark to right -- if bmark is empty, this func behaves like _first above */
+void *
+lp_reactor_next(lp_reactor_t *rctr)
+{
+	if (rctr->rct_stack == NULL) {
+		return (lp_reactor_first(rctr));
+	}
+	selem_t r;
+	slablist_next(rctr->rct_stack, rctr->rct_bm, &r);
+	return ((void *)r.sle_p);
+}
+
+/* Move mark to the left --  if bmark is empty, this func behaves like _first above */
+void *
+lp_reactor_prev(lp_reactor_t *rctr)
+{
+	if (rctr->rct_stack == NULL) {
+		return (lp_reactor_last(rctr));
+	}
+	selem_t r;
+	slablist_prev(rctr->rct_stack, rctr->rct_bm, &r);
+	return ((void *)r.sle_p);
+}
+
+typedef struct clone_args {
+	lp_ast_t	*ca_ast;
+	lg_graph_t	*ca_clone_set;
+} clone_args_t;
+
+void
+get_clone_cb(gelem_t from, gelem_t to, gelem_t weight, gelem_t arg)
+{
+	lp_ast_node_t **c = arg.ge_p;
+	*c = to.ge_p;
+}
+
+lp_ast_node_t *
+get_clone(lg_graph_t *clones, lp_ast_node_t *n)
+{
+	gelem_t gn;
+	gn.ge_p = n;
+	lp_ast_node_t *clone = NULL;
+	gelem_t arg;
+	arg.ge_p = &clone;
+	lg_neighbors_arg(clones, gn, get_clone_cb, arg);
+	if (clone == NULL) {
+		clone = lp_mk_ast_node();
+		gelem_t gclone;
+		gclone.ge_p = clone;
+		lg_connect(clones, gn, gclone);
+	}
+	return (clone);
+}
+
+void
+clone_n_link(gelem_t from, gelem_t to, gelem_t weight, gelem_t arg)
+{
+	clone_args_t *ca = arg.ge_p;
+	lp_ast_t *ast = ca->ca_ast;
+	lg_graph_t *clones = ca->ca_clone_set;
+
+	lp_ast_node_t *f = from.ge_p;
+	lp_ast_node_t *t = to.ge_p;
+	uint64_t w = weight.ge_u;
+	lp_ast_t *orig = f->an_ast;
+
+	lp_ast_node_t *ff = get_clone(clones, f);
+	lp_ast_node_t *tt = get_clone(clones, t);
+	ff->an_id = (uint64_t)ff;
+	tt->an_id = (uint64_t)tt;
+	ff->an_ast = ast;
+	tt->an_ast = ast;
+	ff->an_gnm = f->an_gnm;
+	tt->an_gnm = t->an_gnm;
+	ff->an_type = f->an_type;
+	tt->an_type = t->an_type;
+	ff->an_off_start = f->an_off_start;
+	tt->an_off_start = t->an_off_start;
+	ff->an_off_end = f->an_off_end;
+	tt->an_off_end = t->an_off_end;
+	add_ast_node(ast, tt);
+	add_ast_node(ast, ff);
+	lp_add_ast_child(ff, tt);
+	if (f == orig->ast_start) {
+		ast->ast_start = ff;
+	}
+}
+
+lp_ast_t *
+lp_clone_ast(lp_ast_t *ast)
+{
+	clone_args_t ca;
+	ca.ca_ast = lp_create_ast();
+	ca.ca_ast->ast_cloning = 1;
+	ca.ca_clone_set = lg_create_digraph();
+	ca.ca_ast->ast_in = ast->ast_in;
+	ca.ca_ast->ast_sz = ast->ast_sz;
+	ca.ca_ast->ast_grmr = ast->ast_grmr;
+	gelem_t gclone;
+	gclone.ge_p = &ca;
+	lg_edges_arg(ast->ast_graph, clone_n_link, gclone);
+	ca.ca_ast->ast_cloning = 0;
+	lg_destroy_graph(ca.ca_clone_set);
+	return (ca.ca_ast);
 }

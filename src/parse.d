@@ -32,6 +32,8 @@ inline int E_ASTN_INDEX_DIFF2BIG = 35;
 inline int E_ASTN_INDEX_DIFF2SMALL = 36;
 inline int E_AST_GRAPH_WEIGHTS = 37;
 inline int E_AST_STACK_DUPS = 38;
+inline int E_AST_REF = 39;
+inline int E_AST_REF_DIFF = 40;
 
 inline string tok_op[int op] =
 	op == 0 ? "ROP_ZERO_ONE" :
@@ -81,6 +83,8 @@ inline string lp_e_test_descr[int err] =
 	err == E_ASTN_INDEX_DIFF2SMALL ? "[ INDEX DIFF TOO SMALL ]" :
 	err == E_AST_GRAPH_WEIGHTS ? "[ GRAPH WEIGHTS NOT MONOTOMIC ]" :
 	err == E_AST_STACK_DUPS ? "[ STACK HAS DUPLICATE AST NODES ]" :
+	err == E_AST_REF ? "[ NODE IN AST HAS BAD BACKPTR ]" :
+	err == E_AST_REF_DIFF ? "[ PARENT AND CHILD NODES DIFF ASTS ]" :
 	"[[BAD ERROR CODE]]";
 
 typedef enum regex_op {

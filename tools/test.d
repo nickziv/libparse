@@ -1,10 +1,43 @@
 /*#pragma D option flowindent*/
 #pragma D option bufsize=16m
-#pragma D option switchrate=600hz
+#pragma D option switchrate=800hz
 
 dtrace:::BEGIN
 {
 	self->off_so_far = 0;
+}
+
+pid$target::lp_mk_ast_node:return
+{
+	printf("%x\n", arg1);
+	ustack();
+}
+
+pid$target::lp_rm_ast_node:entry
+{
+	printf("%x\n", arg0);
+	ustack();
+}
+
+parse$target::lp_test_add_child:got_here
+{
+	/*trace(copyinstr(arg0));*/
+	printf("%x\n", arg0);
+}
+
+parse$target::lp_run_grammar:got_here
+{
+	trace(arg0);
+}
+
+pid$target::on_pop:entry
+{
+	@popagg[probefunc, arg1] = count();
+}
+
+pid$target::on_push:entry
+{
+	@pushagg[probefunc, arg0] = count();
 }
 
 /*
@@ -32,7 +65,6 @@ graph$target:::rollback_change
 {
 	printf("ch: %p\n", arg1);
 }
-*/
 graph$target:::change_add
 {
 	printf("ch: %p, s: %u, op: %d, [%lu] %p -> %p\n", arg1, arg2, arg3,
@@ -43,21 +75,7 @@ pid$target::lp_add_ast_child:entry
 {
 	printf("%p -> %p\n", arg0, arg1);
 }
-
-/*
-parse$target:::trace_ast_stack_begin,
-parse$target:::trace_ast_stack_end
-{
-
-}
-
-parse$target:::trace_ast_stack
-/args[1]->ani_gnm_ptr != 0/
-{
-	self->stack = args[0]->asti_stack;
-	printf("\t%s[%p]t(%d) nsplit: %u\n", args[1]->ani_gnm, arg1,
-		args[1]->ani_type, args[0]->asti_nsplit);
-}
+*/
 
 graph$target:::bfs_deq,
 graph$target:::bfs_enq,
@@ -65,7 +83,6 @@ graph$target:::bfs_visit
 {
 	printf("\t%p\n", arg0);
 }
-*/
 
 parse$target:::ast_add_child,
 parse$target:::ast_rem_child
@@ -139,6 +156,7 @@ parse$target:::ast_push
 	printf("%s[%p]", args[0]->ani_gnm, arg0);
 }
 
+/*
 parse$target:::nsplit_inc,
 parse$target:::nsplit_dec
 {
@@ -170,6 +188,7 @@ pid$target::astn_refc_cb:entry
 	printf("(%x, %x, %x, %x)\n", arg0, arg1, arg2, arg3);
 	ustack();
 }
+*/
 
 /*
 slablist$target:::rem_begin
@@ -229,13 +248,11 @@ pid$target:libparse.so.1:try_parse:return
 {
 	printf("\t%p(%d) %p(%d) %p(%d)\n", arg0, arg0,  arg1, (int)arg1, arg2, arg2);
 }
-*/
 
-pid$target::lp_run_grammar:return
+pid$target::lp_run_grammar:entry
 {
-	stop();
-	exit(0);
 }
+*/
 
 parse$target:::test_*
 /arg0 != 0/

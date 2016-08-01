@@ -22,7 +22,7 @@ umem_cache_t *cache_grmr;
 umem_cache_t *cache_ast;
 umem_cache_t *cache_grmr_node;
 umem_cache_t *cache_ast_node;
-umem_cache_t *cache_qed_edge;
+umem_cache_t *cache_cmp_walk_step;
 umem_cache_t *cache_mapping;
 
 
@@ -91,11 +91,11 @@ ast_node_ctor(void *buf, void *ignored, int flags)
 }
 
 int
-qed_edge_ctor(void *buf, void *ignored, int flags)
+cmp_walk_step_ctor(void *buf, void *ignored, int flags)
 {
 	CTOR_HEAD;
-	qed_edge_t *r = buf;
-	bzero(r, sizeof (qed_edge_t));
+	cmp_walk_step_t *r = buf;
+	bzero(r, sizeof (cmp_walk_step_t));
 	return (0);
 }
 
@@ -184,10 +184,10 @@ parse_umem_init()
 		NULL,
 		0);
 
-	cache_qed_edge = umem_cache_create("qed_edge",
-		sizeof (qed_edge_t),
+	cache_cmp_walk_step = umem_cache_create("cmp_walk_step",
+		sizeof (cmp_walk_step_t),
 		0,
-		qed_edge_ctor,
+		cmp_walk_step_ctor,
 		NULL,
 		NULL,
 		NULL,
@@ -371,24 +371,24 @@ lp_rm_ast_node(lp_ast_node_t *i)
 #endif
 }
 
-qed_edge_t *
-lp_mk_qed_edge()
+cmp_walk_step_t *
+lp_mk_cmp_walk_step()
 {
 #ifdef UMEM
-	return (umem_cache_alloc(cache_qed_edge, UMEM_NOFAIL));
+	return (umem_cache_alloc(cache_cmp_walk_step, UMEM_NOFAIL));
 #else
-	return (calloc(1, sizeof (qed_edge_t)));
+	return (calloc(1, sizeof (cmp_walk_step_t)));
 #endif
 }
 
 void
-lp_rm_qed_edge(qed_edge_t *i)
+lp_rm_cmp_walk_step(cmp_walk_step_t *i)
 {
 #ifdef UMEM
-	bzero(i, sizeof (qed_edge_t));
-	umem_cache_free(cache_qed_edge, i);
+	bzero(i, sizeof (cmp_walk_step_t));
+	umem_cache_free(cache_cmp_walk_step, i);
 #else
-	bzero(i, sizeof (qed_edge_t));
+	bzero(i, sizeof (cmp_walk_step_t));
 	free(i);
 #endif
 }
