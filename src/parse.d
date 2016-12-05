@@ -175,6 +175,7 @@ struct lp_ast_node {
 	lp_ast_node_t   *an_left;
 	lp_ast_node_t   *an_right;
 	ast_node_st_t   an_state;
+	uint8_t		*an_contents;
 	uint32_t        an_off_start;
 	uint32_t        an_off_end;
 };

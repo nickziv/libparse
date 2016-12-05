@@ -211,6 +211,15 @@ extern "C" {
 #define	PARSE_INPUT_END_ENABLED() \
 	__dtraceenabled_parse___input_end(0)
 #endif
+#define	PARSE_LAST_LEAF_NODE(arg0) \
+	__dtrace_parse___last_leaf_node(arg0)
+#ifndef	__sparc
+#define	PARSE_LAST_LEAF_NODE_ENABLED() \
+	__dtraceenabled_parse___last_leaf_node()
+#else
+#define	PARSE_LAST_LEAF_NODE_ENABLED() \
+	__dtraceenabled_parse___last_leaf_node(0)
+#endif
 #define	PARSE_MATCH(arg0) \
 	__dtrace_parse___match(arg0)
 #ifndef	__sparc
@@ -264,6 +273,33 @@ extern "C" {
 #else
 #define	PARSE_NSPLIT_INC_ENABLED() \
 	__dtraceenabled_parse___nsplit_inc(0)
+#endif
+#define	PARSE_ON_POP(arg0) \
+	__dtrace_parse___on_pop(arg0)
+#ifndef	__sparc
+#define	PARSE_ON_POP_ENABLED() \
+	__dtraceenabled_parse___on_pop()
+#else
+#define	PARSE_ON_POP_ENABLED() \
+	__dtraceenabled_parse___on_pop(0)
+#endif
+#define	PARSE_ON_PUSH(arg0) \
+	__dtrace_parse___on_push(arg0)
+#ifndef	__sparc
+#define	PARSE_ON_PUSH_ENABLED() \
+	__dtraceenabled_parse___on_push()
+#else
+#define	PARSE_ON_PUSH_ENABLED() \
+	__dtraceenabled_parse___on_push(0)
+#endif
+#define	PARSE_ON_SPLIT(arg0) \
+	__dtrace_parse___on_split(arg0)
+#ifndef	__sparc
+#define	PARSE_ON_SPLIT_ENABLED() \
+	__dtraceenabled_parse___on_split()
+#else
+#define	PARSE_ON_SPLIT_ENABLED() \
+	__dtraceenabled_parse___on_split(0)
 #endif
 #define	PARSE_PARSE() \
 	__dtrace_parse___parse()
@@ -651,6 +687,12 @@ extern int __dtraceenabled_parse___input_end(void);
 #else
 extern int __dtraceenabled_parse___input_end(long);
 #endif
+extern void __dtrace_parse___last_leaf_node(lp_ast_node_t *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___last_leaf_node(void);
+#else
+extern int __dtraceenabled_parse___last_leaf_node(long);
+#endif
 extern void __dtrace_parse___match(lp_ast_node_t *);
 #ifndef	__sparc
 extern int __dtraceenabled_parse___match(void);
@@ -686,6 +728,24 @@ extern void __dtrace_parse___nsplit_inc(int);
 extern int __dtraceenabled_parse___nsplit_inc(void);
 #else
 extern int __dtraceenabled_parse___nsplit_inc(long);
+#endif
+extern void __dtrace_parse___on_pop(char *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___on_pop(void);
+#else
+extern int __dtraceenabled_parse___on_pop(long);
+#endif
+extern void __dtrace_parse___on_push(char *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___on_push(void);
+#else
+extern int __dtraceenabled_parse___on_push(long);
+#endif
+extern void __dtrace_parse___on_split(char *);
+#ifndef	__sparc
+extern int __dtraceenabled_parse___on_split(void);
+#else
+extern int __dtraceenabled_parse___on_split(long);
 #endif
 extern void __dtrace_parse___parse(void);
 #ifndef	__sparc
@@ -902,6 +962,8 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_GRMR_ADD_CHILD_ENABLED() (0)
 #define	PARSE_INPUT_END(arg0)
 #define	PARSE_INPUT_END_ENABLED() (0)
+#define	PARSE_LAST_LEAF_NODE(arg0)
+#define	PARSE_LAST_LEAF_NODE_ENABLED() (0)
 #define	PARSE_MATCH(arg0)
 #define	PARSE_MATCH_ENABLED() (0)
 #define	PARSE_MATCH_PART(arg0)
@@ -914,6 +976,12 @@ extern int __dtraceenabled_parse___unmatched_bits(long);
 #define	PARSE_NSPLIT_DEC_ENABLED() (0)
 #define	PARSE_NSPLIT_INC(arg0)
 #define	PARSE_NSPLIT_INC_ENABLED() (0)
+#define	PARSE_ON_POP(arg0)
+#define	PARSE_ON_POP_ENABLED() (0)
+#define	PARSE_ON_PUSH(arg0)
+#define	PARSE_ON_PUSH_ENABLED() (0)
+#define	PARSE_ON_SPLIT(arg0)
+#define	PARSE_ON_SPLIT_ENABLED() (0)
 #define	PARSE_PARSE()
 #define	PARSE_PARSE_ENABLED() (0)
 #define	PARSE_REM_SUBTREE_BEGIN()

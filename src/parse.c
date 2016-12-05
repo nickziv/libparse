@@ -14,13 +14,16 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+
+#define ASSERT(x) assert(x)
 
 
 /*
  * Some useful globals.
  */
 selem_t ignored;
-static int init = 0;
+static int parse_init = 0;
 
 
 /*
@@ -151,6 +154,12 @@ void
 lp_get_bits(char *c, char *copy, size_t f, size_t t)
 {
 	get_bits(c, copy, f, t);
+}
+
+uint64_t
+lp_get_id(lp_ast_node_t *n)
+{
+	return (n->an_id);
 }
 
 static size_t
@@ -389,7 +398,7 @@ eval_tok_seg(lp_grmr_t *g, tok_seg_t *s,
     char *input, size_t sz, size_t bit_off)
 {
 	size_t c = 0;
-	if (bit_off > (sz * 8)) {
+	if (bit_off >= sz) {
 		PARSE_EVAL_TOK(g, s->ts_op, 0);
 		return (0);
 	}
@@ -543,17 +552,22 @@ void lp_destroy_ast_node(lp_ast_node_t *);
  * decrement the count.
  */
 void
-astn_refc_cb(uint8_t inc, gelem_t s, gelem_t d, gelem_t w)
+astn_refc_cb(uint8_t inc, snap_cb_ctx_t ctx, gelem_t s, gelem_t d, gelem_t w)
 {
 	(void)w;
 	lp_ast_node_t *sn = s.ge_p;
 	lp_ast_node_t *dn = d.ge_p;
+	ASSERT(sn != NULL);
+	ASSERT(dn != NULL);
 	if (inc) {
 		sn->an_srefc++;
 		dn->an_srefc++;
 	} else {
 		sn->an_srefc--;
 		dn->an_srefc--;
+		if (ctx == EDGE && dn->an_type == PARSER) {
+			dn->an_ast->ast_nparse--;
+		}
 	}
 
 	/*
@@ -564,15 +578,20 @@ astn_refc_cb(uint8_t inc, gelem_t s, gelem_t d, gelem_t w)
 	lp_ast_node_t *p = NULL;
 	if (!sn->an_srefc) {
 		p = sn->an_parent;
-		if (p->an_type == SPLITTER) {
+		if (p != NULL && p->an_type == SPLITTER) {
 			p->an_last_child = NULL;
 			p->an_kids = 0;
 		}
-		lp_destroy_ast_node(sn);
+		if (sn == sn->an_ast->ast_start) {
+			sn->an_ast->ast_last_leaf = NULL;
+			PARSE_LAST_LEAF_NODE(NULL);
+		} else {
+			lp_destroy_ast_node(sn);
+		}
 	}
 	if (!dn->an_srefc) {
 		p = dn->an_parent;
-		if (p->an_type == SPLITTER) {
+		if (p != NULL && p->an_type == SPLITTER) {
 			p->an_last_child = NULL;
 			p->an_kids = 0;
 		}
@@ -583,6 +602,10 @@ astn_refc_cb(uint8_t inc, gelem_t s, gelem_t d, gelem_t w)
 lp_ast_t *
 lp_create_ast(void)
 {
+	if (parse_init == 0) {
+		(void)parse_umem_init();
+		parse_init = 1;
+	}
 	lp_ast_t *r = lp_mk_ast();
 	r->ast_nodes = slablist_create("ast_nodes", an_cmp, an_bnd, SL_SORTED);
 	r->ast_graph = lg_create_wdigraph();
@@ -601,9 +624,9 @@ lp_destroy_ast(lp_ast_t *r)
 lp_grmr_t *
 lp_create_grammar(char *name)
 {
-	if (init == 0) {
+	if (parse_init == 0) {
 		(void)parse_umem_init();
-		init = 1;
+		parse_init = 1;
 	}
 	lp_grmr_t *g = lp_mk_grmr();
 	lp_tok_ls_t *ls = lp_create_tokls();
@@ -781,11 +804,12 @@ find_grmr_node(lp_grmr_t *g, char *name)
 	}
 }
 
-lp_ast_node_t *lp_create_ast_node(lp_grmr_node_t *, lp_ast_t *);
 
-lp_ast_node_t *
+static lp_ast_node_t *
 lp_create_ast_node(lp_grmr_node_t *gn, lp_ast_t *ast)
 {
+	ASSERT(gn != NULL);
+	ASSERT(ast != NULL);
 	lp_ast_node_t *a = lp_mk_ast_node();
 	/*
 	 * We set the ID to the pointer, because it is unique and will allow us
@@ -799,11 +823,32 @@ lp_create_ast_node(lp_grmr_node_t *gn, lp_ast_t *ast)
 	return (a);
 }
 
+/*
+ * This is a public function that constructs an ast_node and names it.
+ */
+lp_ast_node_t *
+lp_create_astn_name(lp_ast_t *ast, char *nm)
+{
+	ASSERT(ast);
+	ASSERT(nm);
+	lp_ast_node_t *a = lp_mk_ast_node();
+	/*
+	 * We set the ID to the pointer, because it is unique and will allow us
+	 * to do ranged comparisons.
+	 */
+	a->an_id = (uint64_t)a;
+	a->an_ast = ast;
+	a->an_gnm = nm;
+	add_ast_node(ast, a);
+	return (a);
+}
+
 void
 lp_destroy_ast_node(lp_ast_node_t *n)
 {
 	rem_ast_node(n->an_ast, n);
 	PARSE_DESTROY_AST_NODE(n);
+	ASSERT(n != n->an_ast->ast_last_leaf);
 	lp_rm_ast_node(n);
 }
 
@@ -823,6 +868,36 @@ lp_root_grmr_node(lp_grmr_t *g, char *nm)
 	return (0);
 }
 
+/*
+ * Set a root-ast_node.
+ */
+int
+lp_root_ast_node(lp_ast_t *a, lp_ast_node_t *n)
+{
+	if (a == NULL || n == NULL) {
+		return (-1);
+	}
+	a->ast_start = n;
+	return (0);
+}
+
+int
+lp_astn_is_root(lp_ast_node_t *n)
+{
+	lp_ast_t *a = n->an_ast;
+	if (a->ast_start == n) {
+		return (1);
+	}
+	return (0);
+}
+
+
+n_type_t
+lp_astn_type(lp_ast_node_t *n)
+{
+	return (n->an_type);
+}
+
 
 /*
  * Gives a grmr_node a child.
@@ -835,9 +910,15 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	p = find_grmr_node(g, parent);
 	c = find_grmr_node(g, child);
 	if (p == NULL) {
+		printf("NULL parent: %s\n", parent);
+		fflush(stdout);
+		ASSERT(0);
 		return (-1);
 	}
 	if (c == NULL) {
+		printf("NULL child: %s\n", child);
+		fflush(stdout);
+		ASSERT(0);
 		return (-2);
 	}
 
@@ -845,6 +926,7 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	 * Parsers should be leaf nodes only.
 	 */
 	if (p->gn_type == PARSER) {
+		ASSERT(0);
 		return (-4);
 	}
 
@@ -857,6 +939,7 @@ lp_add_child(lp_grmr_t *g, char *parent, char *child)
 	 * the last iteration failed and to take an alternative branch.
 	 */
 	if (p->gn_name == c->gn_name) {
+		ASSERT(0);
 		return (-5);
 	}
 	gelem_t pg;
@@ -945,6 +1028,7 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 {
 	lp_ast_t *ast = z.sle_p;
 	lp_ast_node_t *an = ast->ast_last_leaf;
+	ASSERT(an != NULL);
 	if (an->an_left != NULL) {
 		an->an_off_start = an->an_left->an_off_end;
 		PARSE_AST_NODE_OFF_START(ast->ast_grmr, an);
@@ -1000,6 +1084,7 @@ parse_tok_segs(selem_t z, selem_t *e, uint64_t sz)
 	if (an->an_ast->ast_max_off < an->an_off_end) {
 		an->an_ast->ast_max_off = an->an_off_end;
 	}
+	an->an_ast->ast_last_off = an->an_off_end;
 	PARSE_AST_NODE_OFF_END(ast->ast_grmr, an);
 	if (an->an_off_end == ast->ast_sz) {
 		ast->ast_eoi = 1;
@@ -1078,6 +1163,9 @@ lp_rem_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 		}
 	}
 	p->an_kids--;
+	if (c->an_type == PARSER) {
+		p->an_ast->ast_nparse--;
+	}
 	c->an_parent = NULL;
 	PARSE_AST_REM_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
@@ -1128,6 +1216,7 @@ void
 ast_pop_astn(lp_ast_t *ast)
 {
 	lp_ast_node_t *l = ast->ast_last_leaf;
+	ASSERT(l != NULL);
 	PARSE_AST_POP(l);
 	lp_ast_node_t *p = l->an_parent;
 	if (l->an_state == ANS_FAIL) {
@@ -1155,6 +1244,7 @@ ast_pop_astn(lp_ast_t *ast)
 		PARSE_NSPLIT_DEC(ast->ast_nsplit);
 	}
 	ast->ast_last_leaf = p;
+	PARSE_LAST_LEAF_NODE(p);
 	if (PARSE_TEST_AST_ENABLED()) {
 		int test = lp_test_ast(ast);
 		PARSE_TEST_AST(test);
@@ -1173,7 +1263,11 @@ ast_rewind(lp_ast_t *ast)
 		PARSE_REWIND_END(1);
 		return (1);
 	}
+
 	lp_ast_node_t *l = ast->ast_last_leaf;
+	/* Print the right-most slice of the AST */
+	int debug = 1;
+
 	/* We are already at the top level splitter */
 	if (ast->ast_nsplit == 1 && l->an_type == SPLITTER) {
 		PARSE_REWIND_END(0);
@@ -1181,9 +1275,11 @@ ast_rewind(lp_ast_t *ast)
 	}
 
 	do {
+		ASSERT(l != NULL);
 		lp_ast_node_t *p = l->an_parent;
 		PARSE_AST_POP(l);
 		ast->ast_last_leaf = p;
+		PARSE_LAST_LEAF_NODE(p);
 		if (l->an_type == SPLITTER) {
 			ast->ast_nsplit--;
 			PARSE_NSPLIT_DEC(ast->ast_nsplit);
@@ -1204,11 +1300,13 @@ ast_rewind(lp_ast_t *ast)
 			}
 		}
 
+		/* XXX if we did rem_ast_child above, then `p` has been freed! */
+
 		l = p;
-		if (l->an_type == SPLITTER) {
+		if (l != NULL && l->an_type == SPLITTER) {
 			break;
 		}
-	} while (l->an_type != SPLITTER);
+	} while (l != NULL && l->an_type != SPLITTER);
 
 
 	PARSE_REWIND_END(0);
@@ -1297,6 +1395,18 @@ on_pop_handle_sequencer(lp_ast_t *ast, lp_ast_node_t *a_top)
 
 int on_pop(gelem_t gn, gelem_t state);
 
+void
+decrament_nparse(lp_ast_node_t *n)
+{
+	ASSERT(n->an_type == PARSER);
+
+	lp_ast_node_t *c = n;
+	lp_ast_node_t *p = n->an_parent;
+	while (c != NULL && c->an_parent == p) {
+		c->an_ast->ast_nparse--;
+		c = c->an_left;
+	}
+}
 /*
  * This gets called when we finish with a node.
  */
@@ -1305,7 +1415,11 @@ on_pop(gelem_t gn, gelem_t state)
 {
 	lp_ast_t *ast = state.ge_p;
 	lp_grmr_node_t *node = gn.ge_p;
+	PARSE_ON_POP(node->gn_name);
 	lp_ast_node_t *a_top = ast->ast_last_leaf;
+	if (a_top == NULL) {
+		return (0);
+	}
 	int ret = 0;
 	/*
 	 * XXX TODO update the below paragraph, since we have an implicit
@@ -1365,6 +1479,7 @@ on_pop(gelem_t gn, gelem_t state)
 		try_parse(node, ast);
 		if (a_top->an_state == ANS_FAIL) {
 			ret = 2;
+			/* decrament_nparse(a_top); */
 			rewind_failed = ast_rewind(ast);
 			handle_rewind_failure(ast, rewind_failed);
 			return (ret);
@@ -1433,6 +1548,7 @@ ast_push_astn(lp_ast_t *ast, lp_ast_node_t *an)
 		ast->ast_start = an;
 	}
 	ast->ast_last_leaf = an;
+	PARSE_LAST_LEAF_NODE(an);
 	if (an->an_type == SPLITTER) {
 		ast->ast_nsplit++;
 		PARSE_NSPLIT_INC(ast->ast_nsplit);
@@ -1469,6 +1585,8 @@ any_child_matched(lp_ast_node_t *n)
 lp_ast_node_t *
 maybe_create_ast_node(lp_ast_t *ast, lp_grmr_node_t *node)
 {
+	ASSERT(ast != NULL);
+	ASSERT(node != NULL);
 	lp_ast_node_t *p = ast->ast_last_leaf;
 	/*
 	 * We don't create an AST node if the parent is a matched splitter
@@ -1483,6 +1601,12 @@ maybe_create_ast_node(lp_ast_t *ast, lp_grmr_node_t *node)
 	lp_ast_node_t *n = lp_create_ast_node(node, ast);
 	n->an_type = node->gn_type;
 	return (n);
+}
+
+void
+lp_set_astn_type(lp_ast_node_t *n, n_type_t t)
+{
+	n->an_type = t;
 }
 
 /* The weight-radix */
@@ -1539,6 +1663,9 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 	} else if (c->an_type == SPLITTER) {
 		c->an_snap = lg_snapshot(ast_graph);
 	}
+	if (c->an_type == PARSER) {
+		p->an_ast->ast_nparse++;
+	}
 	PARSE_AST_ADD_CHILD(grmr, p, c);
 	if (PARSE_TRACE_AST_ENABLED()) {
 		PARSE_TRACE_AST_BEGIN();
@@ -1554,6 +1681,43 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
 }
 
 /*
+ * This function is intended to allow the user to construct an AST from
+ * scratch, as long as the nodes are connected in order.
+ */
+void
+lp_astn_addc(lp_ast_node_t *p, lp_ast_node_t *c, uint64_t wt)
+{
+	ASSERT(c->an_parent == NULL);
+	ASSERT(c->an_off_start >= p->an_off_start &&
+	    c->an_off_start <= p->an_off_end &&
+	    c->an_off_end >= p->an_off_start &&
+	    c->an_off_end <= p->an_off_end);
+
+	gelem_t f;
+	gelem_t t;
+	gelem_t w;
+	f.ge_p = p;
+	t.ge_p = c;
+	w.ge_u = wt;
+	ASSERT(p->an_ast);
+	lg_graph_t *g = p->an_ast->ast_graph;
+	ASSERT(g);
+	lg_wconnect(g, f, t, w);
+	p->an_kids++;
+	c->an_index = wt;
+	c->an_parent = p;
+	lp_ast_node_t *lc = p->an_last_child;
+	if (lc != NULL) {
+		ASSERT(lc->an_index < wt);
+		p->an_last_child = c;
+		c->an_left = lc;
+		lc->an_right = c;
+	} else {
+		p->an_last_child = c;
+	}
+}
+
+/*
  * This function is intended to allow the user to edit the AST _after_ it has
  * already been constructed. It is not used while parsing. We can only add
  * children _to the left of_ an existing ast node. To add a child to the right
@@ -1561,10 +1725,17 @@ lp_add_ast_child(lp_ast_node_t *p, lp_ast_node_t *c)
  * has no next neighbor, just use the lp_add_ast_child() function above.
  */
 void
-lp_add_ast_child_left(lp_ast_node_t *n, lp_ast_node_t *l)
+lp_astn_addl(lp_ast_node_t *n, lp_ast_node_t *l)
 {
 	gelem_t weight;
 	weight.ge_u = n->an_index - 1;
+}
+
+void
+lp_astn_addr(lp_ast_node_t *n, lp_ast_node_t *l)
+{
+	gelem_t weight;
+	weight.ge_u = n->an_index + 1;
 }
 
 /*
@@ -1597,6 +1768,7 @@ int
 on_split(gelem_t n)
 {
 	lp_grmr_node_t *gn = n.ge_p;
+	PARSE_ON_SPLIT(gn->gn_name);
 	if (gn->gn_type == SPLITTER) {
 		return (1);
 	}
@@ -1622,7 +1794,10 @@ int
 on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 {
 	(void)ignored;
+	lp_grmr_node_t *node = gn.ge_p;
+	PARSE_ON_PUSH(node->gn_name);
 	lp_ast_t *ast = state.ge_p;
+	ASSERT(ast != NULL);
 	if (PARSE_TEST_AST_ENABLED()) {
 		int e = lp_test_ast(ast);
 		PARSE_TEST_AST(e);
@@ -1630,7 +1805,7 @@ on_push(gelem_t state, gelem_t gn, gelem_t *ignored)
 	if (ast->ast_bail) {
 		return (1);
 	}
-	lp_grmr_node_t *node = gn.ge_p;
+	ASSERT(node != NULL);
 	lp_ast_node_t *an = NULL;
 	lp_ast_node_t *last_astn = NULL;
 
@@ -1679,6 +1854,7 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	 */
 	PARSE_RUN_GRMR_BEGIN(g, ast);
 	ast->ast_last_leaf = NULL;
+	PARSE_LAST_LEAF_NODE(NULL);
 	ast->ast_in = in;
 	ast->ast_sz = sz;
 	ast->ast_grmr = g;
@@ -1698,12 +1874,21 @@ lp_run_grammar(lp_grmr_t *g, lp_ast_t *ast, void *in, size_t sz)
 	 * This is here as a filler. What _should_ we return, anyway?
 	 */
 	if (ast->ast_max_off < sz) {
-		printf("MAX_OFF: %u\n", ast->ast_max_off);
-		printf("SZ: %lu\n", sz);
-		printf("EOI: %d\n", ast->ast_eoi);
+		return (-1);
+	}
+	if (ast->ast_eoi == 0) {
+		return (-1);
+	}
+	if (ast->ast_nparse == 0) {
 		return (-1);
 	}
 	return (0);
+}
+
+uint64_t
+lp_ast_max_off(lp_ast_t *ast)
+{
+	return (ast->ast_max_off);
 }
 
 
@@ -1945,7 +2130,9 @@ lp_map_pd(lp_ast_t *ast, char *mapnm, char *p, char *d)
 	smax.sle_p = nmax;
 	zero.sle_p = m;
 	slablist_foldr_range(ast->ast_nodes, map_pd_fold, smin, smax, zero);
+	ASSERT(nmin != ast->ast_last_leaf);
 	lp_rm_ast_node(nmin);
+	ASSERT(nmax != ast->ast_last_leaf);
 	lp_rm_ast_node(nmax);
 	return (0);
 }
@@ -1986,7 +2173,7 @@ lp_map_query(lp_ast_t *a, char *map, lp_ast_node_t *key, lp_map_query_cb_t cb,
 	gelem_t garg;
 	garg.ge_p = &mqa;
 
-	lg_neighbors_arg(mapping->map_graph,gkey, &map_neighbors_cb, garg);
+	lg_neighbors_arg(mapping->map_graph, gkey, &map_neighbors_cb, garg);
 }
 
 /*
@@ -2003,7 +2190,13 @@ lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
 		return (1);
 	}
 	char *copy = lp_mk_buf(an_sz/8);
-	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	char *contents = NULL;
+	if (c->an_contents != NULL) {
+		contents = c->an_contents;
+	} else {
+		contents = c->an_ast->ast_in;
+	}
+	get_bits(contents, copy, c->an_off_start, c->an_off_end);
 	int r = bcmp(buf, copy, sz);
 	lp_rm_buf(copy, an_sz/8);
 	return (r);
@@ -2012,7 +2205,13 @@ lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
 void
 lp_copy_contents(lp_ast_node_t *c, char *copy)
 {
-	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	char *src = NULL;
+	if (c->an_contents != NULL) {
+		src = c->an_contents;
+	} else {
+		src = c->an_ast->ast_in;
+	}
+	get_bits(src, copy, c->an_off_start, c->an_off_end);
 }
 
 char *
@@ -2020,9 +2219,38 @@ lp_get_contents(lp_ast_node_t *c)
 {
 	size_t an_sz = c->an_off_end - c->an_off_start;
 	char *copy = lp_mk_buf((an_sz / 8) + 1);
-	get_bits(c->an_ast->ast_in, copy, c->an_off_start, c->an_off_end);
+	char *src = NULL;
+	if (c->an_contents != NULL) {
+		src = c->an_contents;
+	} else {
+		src = c->an_ast->ast_in;
+	}
+	get_bits(src, copy, c->an_off_start, c->an_off_end);
 	copy[(an_sz / 8)] = 0;
 	return (copy);
+}
+
+void
+lp_astn_offsets(lp_ast_node_t *n, uint32_t offs, uint32_t offe)
+{
+	ASSERT(n);
+	ASSERT(offe >= offs);
+	n->an_off_start = offs;
+	n->an_off_end = offe;
+}
+
+char *
+lp_ast_buf(lp_ast_t *a, size_t *sz)
+{
+	*sz = a->ast_sz;
+	return (a->ast_in);
+}
+
+void
+lp_buf_ast(lp_ast_t *a, char *b, size_t sz)
+{
+	a->ast_in = b;
+	a->ast_sz = sz;
 }
 
 size_t
@@ -2030,6 +2258,18 @@ lp_get_bitwidth(lp_ast_node_t *c)
 {
 	size_t an_sz = c->an_off_end - c->an_off_start;
 	return (an_sz);
+}
+
+uint32_t
+lp_get_off_start(lp_ast_node_t *c)
+{
+	return (c->an_off_start);
+}
+
+uint32_t
+lp_get_off_end(lp_ast_node_t *c)
+{
+	return (c->an_off_end);
 }
 
 void
@@ -2063,6 +2303,9 @@ lp_get_node_name(lp_ast_node_t *n)
 int
 lp_cmp_name(lp_ast_node_t *an, char *nm)
 {
+	ASSERT(an != NULL);
+	ASSERT(nm != NULL);
+	ASSERT(an->an_gnm != NULL);
 	return (strcmp(an->an_gnm, nm));
 }
 
@@ -2179,14 +2422,14 @@ lp_dump_gnodes(lp_grmr_t *g)
 
 
 void
-lp_grmr_dfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb)
+lp_grmr_dfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb, void *arg)
 {
 	(void)g; (void)cb;
 
 }
 
 void
-lp_grmr_bfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb)
+lp_grmr_bfs(lp_grmr_t *g, char *s, lp_grmr_cb_t cb, void *arg)
 {
 	(void)g; (void)cb;
 
@@ -2200,12 +2443,6 @@ lp_ast_dfs(lp_ast_t *g, lp_ast_node_t *s, lp_ast_cb_t cb, void *arg)
 }
 
 
-void
-lp_ast_bfs(lp_ast_t *g, lp_ast_node_t *s, lp_ast_cb_t cb, void *arg)
-{
-	(void)g; (void)cb; (void)arg;
-
-}
 
 void
 ast_adj_upln(gelem_t to, gelem_t from, gelem_t w, gelem_t agg)
@@ -2245,6 +2482,12 @@ typedef struct xfs_fold_cookie {
 	void		*xfs_arg;
 } xfs_fold_cookie_t;
 
+typedef struct nbr_fold_cookie {
+	lp_edge_cb_t	*nbr_cb;
+	lp_ast_t	*nbr_ast;
+	void		*nbr_arg;
+} nbr_fold_cookie_t;
+
 int
 dfs_cb(gelem_t agg, gelem_t n, gelem_t *aggp)
 {
@@ -2281,6 +2524,20 @@ dfs_fold(selem_t arg, selem_t *e, uint64_t sz)
 	return (arg);
 }
 
+void
+lp_ast_bfs(lp_ast_t *ast, lp_ast_node_t *s, lp_ast_cb_t *cb, void *arg)
+{
+	xfs_fold_cookie_t ck;
+	ck.xfs_cb = cb;
+	ck.xfs_arg = arg;
+	ck.xfs_ast = ast;
+	gelem_t garg;
+	garg.ge_p = &ck;
+	gelem_t start;
+	start.ge_p = s;
+	lg_bfs_fold(ast->ast_graph, start, NULL, bfs_cb, garg);
+}
+
 static selem_t
 bfs_fold(selem_t arg, selem_t *e, uint64_t sz)
 {
@@ -2292,6 +2549,21 @@ bfs_fold(selem_t arg, selem_t *e, uint64_t sz)
 		garg.ge_p = c;
 		n.ge_p = e[i].sle_p;
 		lg_bfs_fold(c->xfs_ast->ast_graph, n, NULL, bfs_cb, garg);
+		i++;
+	}
+	return (arg);
+}
+
+static selem_t
+neighbors_fold(selem_t arg, selem_t *e, uint64_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		nbr_fold_cookie_t *c = arg.sle_p;
+		lp_ast_node_t *n = e[i].sle_p;
+		lp_ast_neighbors(c->nbr_ast, n, c->nbr_cb,
+		    c->nbr_arg);
+		c->nbr_cb(NULL, NULL, 0, c->nbr_arg);
 		i++;
 	}
 	return (arg);
@@ -2322,8 +2594,51 @@ lp_ast_dfs_name(lp_ast_t *ast, char *gnm, lp_ast_cb_t cb, void *arg)
 	smax.sle_p = an_max;
 
 	(void)slablist_foldr_range(ast->ast_nodes, dfs_fold, smin, smax, zero);
+	ASSERT(an_min != ast->ast_last_leaf);
 	lp_rm_ast_node(an_min);
+	ASSERT(an_max != ast->ast_last_leaf);
 	lp_rm_ast_node(an_max);
+}
+
+typedef struct ast_edge_arg {
+	lp_edge_cb_t	*aea_cb;
+	void		*aea_arg;
+} ast_edge_arg_t;
+
+void
+ast_edges_cb(gelem_t from, gelem_t to, gelem_t weight, gelem_t arg)
+{
+	lp_ast_node_t *f = from.ge_p;
+	lp_ast_node_t *t = to.ge_p;
+	uint64_t w = weight.ge_u;
+	ast_edge_arg_t *a = arg.ge_p;
+	a->aea_cb(f, t, w, a->aea_arg);
+}
+
+void
+lp_ast_edges(lp_ast_t *ast, lp_edge_cb_t cb, void *arg)
+{
+	lg_graph_t *g = ast->ast_graph;
+	ast_edge_arg_t ast_arg;
+	ast_arg.aea_cb = cb;
+	ast_arg.aea_arg = arg;
+	gelem_t g_ast_arg;
+	g_ast_arg.ge_p = &ast_arg;
+	lg_edges_arg(g, ast_edges_cb, g_ast_arg);
+}
+
+void
+lp_ast_neighbors(lp_ast_t *ast, lp_ast_node_t *f, lp_edge_cb_t cb, void *arg)
+{
+	lg_graph_t *g = ast->ast_graph;
+	ast_edge_arg_t ast_arg;
+	ast_arg.aea_cb = cb;
+	ast_arg.aea_arg = arg;
+	gelem_t g_ast_arg;
+	g_ast_arg.ge_p = &ast_arg;
+	gelem_t key;
+	key.ge_p = f;
+	lg_neighbors_arg(g, key, ast_edges_cb, g_ast_arg);
 }
 
 void
@@ -2331,8 +2646,8 @@ lp_ast_bfs_name(lp_ast_t *ast, char *name, lp_ast_cb_t cb, void *arg)
 {
 	lp_ast_node_t *an_min = lp_mk_ast_node();
 	lp_ast_node_t *an_max = lp_mk_ast_node();
-	an_min->an_gnm = gnm;
-	an_max->an_gnm = gnm;
+	an_min->an_gnm = name;
+	an_max->an_gnm = name;
 	an_min->an_id = 0;
 	an_max->an_id = UINT64_MAX;
 	selem_t zero;
@@ -2348,13 +2663,51 @@ lp_ast_bfs_name(lp_ast_t *ast, char *name, lp_ast_cb_t cb, void *arg)
 	smax.sle_p = an_max;
 
 	(void)slablist_foldr_range(ast->ast_nodes, bfs_fold, smin, smax, zero);
+	ASSERT(an_min != ast->ast_last_leaf);
 	lp_rm_ast_node(an_min);
+	ASSERT(an_max != ast->ast_last_leaf);
+	lp_rm_ast_node(an_max);
+}
+
+/*
+ * We get the neighbors of each node that has name `name`. We call the `cb` on
+ * each pair of neighbors. When we finish with a node's neighbors, we call cb()
+ * with all values NULL, except for the `arg` value. The caller may want to
+ * know when we've moved on to the next node.
+ */
+void
+lp_ast_neighbors_name(lp_ast_t *ast, char *name, lp_edge_cb_t cb, void *arg)
+{
+	lp_ast_node_t *an_min = lp_mk_ast_node();
+	lp_ast_node_t *an_max = lp_mk_ast_node();
+	an_min->an_gnm = name;
+	an_max->an_gnm = name;
+	an_min->an_id = 0;
+	an_max->an_id = UINT64_MAX;
+	selem_t zero;
+	nbr_fold_cookie_t ck;
+	ck.nbr_cb = cb;
+	ck.nbr_arg = arg;
+	ck.nbr_ast = ast;
+	zero.sle_p = &ck;
+
+	selem_t smin;
+	selem_t smax;
+	smin.sle_p = an_min;
+	smax.sle_p = an_max;
+
+	(void)slablist_foldr_range(ast->ast_nodes, neighbors_fold, smin, smax,
+	    zero);
+	ASSERT(an_min != ast->ast_last_leaf);
+	lp_rm_ast_node(an_min);
+	ASSERT(an_max != ast->ast_last_leaf);
 	lp_rm_ast_node(an_max);
 }
 
 int
-flatten_cb(gelem_t n, gelem_t arg)
+flatten_cb(gelem_t pred, gelem_t n, gelem_t arg)
 {
+	(void)pred;
 	lp_flatten_cb_t *cb = arg.ge_p;
 	lp_ast_node_t *an = n.ge_p;
 	int ret = cb(an);
@@ -2369,6 +2722,7 @@ flatten_fold(selem_t agg, selem_t *e, size_t sz)
 		gelem_t node;
 		node.ge_p = e[i].sle_p;
 		lp_ast_node_t *an = node.ge_p;
+		ASSERT(an->an_gnm != NULL);
 		lp_ast_t *ast = an->an_ast;
 		gelem_t arg;
 		arg.ge_p = agg.sle_p;
@@ -2381,6 +2735,9 @@ flatten_fold(selem_t agg, selem_t *e, size_t sz)
 void
 lp_flatten_astn(lp_ast_t *ast, char *gnm, lp_flatten_cb_t *cb)
 {
+	ASSERT(ast != NULL);
+	ASSERT(gnm != NULL);
+	ASSERT(cb != NULL);
 	lp_ast_node_t *an_min = lp_mk_ast_node();
 	lp_ast_node_t *an_max = lp_mk_ast_node();
 	an_min->an_gnm = gnm;
@@ -2396,7 +2753,71 @@ lp_flatten_astn(lp_ast_t *ast, char *gnm, lp_flatten_cb_t *cb)
 	smax.sle_p = an_max;
 
 	(void)slablist_foldr_range(ast->ast_nodes, flatten_fold, smin, smax, zero);
+	ASSERT(an_min != ast->ast_last_leaf);
 	lp_rm_ast_node(an_min);
+	ASSERT(an_max != ast->ast_last_leaf);
+	lp_rm_ast_node(an_max);
+}
+
+int
+flatten2_cb(gelem_t pred, gelem_t n, gelem_t arg)
+{
+	lp_flatten2_cb_t *cb = arg.ge_p;
+	lp_ast_node_t *an_pred = pred.ge_p;
+	lp_ast_node_t *an = n.ge_p;
+	int ret = cb(an_pred, an);
+	return (ret);
+}
+
+static selem_t
+flatten2_fold(selem_t agg, selem_t *e, size_t sz)
+{
+	uint64_t i = 0;
+	while (i < sz) {
+		gelem_t node;
+		node.ge_p = e[i].sle_p;
+		lp_ast_node_t *an = node.ge_p;
+		ASSERT(an->an_gnm != NULL);
+		lp_ast_t *ast = an->an_ast;
+		gelem_t arg;
+		arg.ge_p = agg.sle_p;
+		lg_flatten(ast->ast_graph, node, flatten2_cb, arg);
+		i++;
+	}
+	return (agg);
+}
+
+/*
+ * flatten2 is a variant of flatten. It does the same thing, but takes a
+ * callback that takes 2 arguments. The current node and the current ancestor
+ * we are flattening. This is useful in situations where a recursive gnode
+ * references itself thus creating a structure in which we only want to promote
+ * a node to its nearest target ancestor.
+ */
+void
+lp_flatten2_astn(lp_ast_t *ast, char *gnm, lp_flatten2_cb_t *cb)
+{
+	ASSERT(ast != NULL);
+	ASSERT(gnm != NULL);
+	ASSERT(cb != NULL);
+	lp_ast_node_t *an_min = lp_mk_ast_node();
+	lp_ast_node_t *an_max = lp_mk_ast_node();
+	an_min->an_gnm = gnm;
+	an_max->an_gnm = gnm;
+	an_min->an_id = 0;
+	an_max->an_id = UINT64_MAX;
+	selem_t zero;
+	zero.sle_p = cb;
+
+	selem_t smin;
+	selem_t smax;
+	smin.sle_p = an_min;
+	smax.sle_p = an_max;
+
+	(void)slablist_foldr_range(ast->ast_nodes, flatten2_fold, smin, smax, zero);
+	ASSERT(an_min != ast->ast_last_leaf);
+	lp_rm_ast_node(an_min);
+	ASSERT(an_max != ast->ast_last_leaf);
 	lp_rm_ast_node(an_max);
 }
 
@@ -2737,6 +3158,12 @@ lp_ast_node_t *
 lp_ast_node_parent(lp_ast_node_t *n)
 {
 	return (n->an_parent);
+}
+
+lp_ast_t *
+lp_ast_node_ast(lp_ast_node_t *n)
+{
+	return (n->an_ast);
 }
 
 lp_ast_node_t *

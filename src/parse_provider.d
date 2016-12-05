@@ -55,6 +55,9 @@ ress.
 	probe trace_ast_stack_end();
 	probe create_ast(lp_ast_t *a) : (astinfo_t *a);
 	probe nesting(lp_ast_t *a) : (astinfo_t *a);
+	probe on_split(char *);
+	probe on_pop(char *);
+	probe on_push(char *);
 	probe bind_begin();
 	probe bind_end();
 	probe run_grmr_begin(lp_grmr_t *g, lp_ast_t *a) :
@@ -85,6 +88,7 @@ ress.
 		(grmrinfo_t *g, int i, int m);
 	probe set_root(lp_grmr_t *g, char *i) :
 		(grmrinfo_t *g, char *i);
+	probe last_leaf_node(lp_ast_node_t *i) : (an_info_t *i);
 	probe matched_bits(int a, void *b, lp_grmr_node_t *c, uint64_t d,
 		uint64_t e) :
 		(int a, void *b, gn_info_t *c, uint64_t d, uint64_t e); 

@@ -203,21 +203,25 @@ lp_test_ast_node(lp_ast_node_t *a)
 		}
 	}
 
+	/*
+	 * Commented out the below tests, because they are no longer valid
+	 * after adding the WADIX code.
+	 */
 	if (a->an_left != NULL) {
 		if (!(a->an_left->an_index < a->an_index)) {
-			return (E_ASTN_INDEX_DIFF2SMALL);
+			// return (E_ASTN_INDEX_DIFF2SMALL);
 		}
 		if ((a->an_index - a->an_left->an_index) > 1) {
-			return (E_ASTN_INDEX_DIFF2BIG);
+			// return (E_ASTN_INDEX_DIFF2BIG);
 		}
 	}
 
 	if (a->an_right != NULL) {
 		if (!(a->an_right->an_index > a->an_index)) {
-			return (E_ASTN_INDEX_DIFF2SMALL);
+			// return (E_ASTN_INDEX_DIFF2SMALL);
 		}
 		if ((a->an_right->an_index - a->an_index) > 1) {
-			return (E_ASTN_INDEX_DIFF2BIG);
+			// return (E_ASTN_INDEX_DIFF2BIG);
 		}
 	}
 
@@ -274,8 +278,8 @@ test_ast_graph_cb(gelem_t f, gelem_t t, gelem_t w)
 	 */
 	if (test_ast_graph_from != NULL) {
 		if (from == test_ast_graph_from) {
-			if (test_ast_graph_weight >= weight ||
-			    (weight - test_ast_graph_weight) > 1 ) {
+			if (test_ast_graph_weight >= weight /* ||
+			    (weight - test_ast_graph_weight) > 1 */ ) {
 				test_ast_graph_failed = 1;
 			}
 		}

@@ -68,6 +68,13 @@ struct lp_ast_node {
 	lp_ast_node_t	*an_left;
 	lp_ast_node_t	*an_right;
 	ast_node_st_t	an_state;
+	/*
+	 * If contents is not NULL, the 2 offsets represent the size in bits.
+	 * If it is, then the offsets refer to start and end offsets within the
+	 * input buffer. This predominantly used when we are building an AST
+	 * manually, as opposed to building it during a parse.
+	 */
+	uint8_t		*an_contents;
 	uint32_t	an_off_start;
 	uint32_t	an_off_end;
 };
@@ -160,7 +167,9 @@ struct lp_ast {
 	int		ast_eoi; /* end of input */
 	int		ast_bail; /* tell DFS to bail */
 	uint32_t	ast_nsplit; /* splitters pushed to stack */
+	uint32_t	ast_nparse; /* parsers in AST */
 	uint32_t	ast_max_off;
+	uint32_t	ast_last_off;
 	lp_ast_node_t	*ast_last_leaf;
 	lg_graph_t	*ast_to_remove;
 	slablist_t	*ast_mappings;
