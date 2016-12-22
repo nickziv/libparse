@@ -2197,8 +2197,8 @@ lp_cmp_contents(char *buf, size_t sz, lp_ast_node_t *c)
 		contents = c->an_ast->ast_in;
 	}
 	get_bits(contents, copy, c->an_off_start, c->an_off_end);
-	int r = bcmp(buf, copy, sz);
-	lp_rm_buf(copy, an_sz/8);
+	int r = bcmp(buf, copy, sz / 8);
+	lp_rm_buf(copy, an_sz / 8);
 	return (r);
 }
 
@@ -2351,7 +2351,8 @@ print_ast_edge(gelem_t from, gelem_t to, gelem_t weight)
 	lp_ast_node_t *t = to.ge_p;
 	uint64_t w = weight.ge_u;
 
-	printf("EDGE: %s -> %s [%lu]\n", f->an_gnm, t->an_gnm, w);
+	printf("EDGE: %s[%p] -> %s[%p] [%lu]\n", f->an_gnm, f, t->an_gnm, t,
+	    w);
 	if (t->an_parent != f) {
 		if (t->an_parent == NULL) {
 			printf("WARN: Parent of %s is NULL\n", t->an_gnm);
